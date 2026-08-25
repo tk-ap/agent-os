@@ -1,4 +1,4 @@
-version: 0.1.0
+version: 0.2.0
 
 policy:
   selection: minimum-sufficient-set
@@ -6,21 +6,16 @@ policy:
   external_discovery_allowed: true
   auto_install_external: false
   require_review_before_approval: true
+  pin_approved_external: true
   record_usefulness: true
+  promote_repeated_capabilities: true
 
 trust_levels:
-  owned:
-    description: Authored and maintained inside Agent OS.
-    usable: true
-  approved:
-    description: External or imported skill reviewed, pinned, and accepted.
-    usable: true
-  candidate:
-    description: Discovered but not yet reviewed or pinned.
-    usable: false
-  blocked:
-    description: Rejected for safety, quality, conflict, provenance, or redundancy.
-    usable: false
+  owned: {description: Authored and maintained inside Agent OS., usable: true}
+  approved: {description: External/imported skill reviewed and pinned., usable: true}
+  candidate: {description: Discovered but not reviewed/pinned., usable: false}
+  blocked: {description: Rejected for safety, quality, conflict, provenance, or redundancy., usable: false}
+  planned: {description: Capability requirement identified but implementation not yet selected., usable: false}
 
 external_sources:
   - name: antigravity-skills-directory
@@ -29,96 +24,68 @@ external_sources:
     trust: candidate
   - name: github
     url: https://github.com/
-    mode: discovery-only
+    mode: discovery-and-pin
     trust: candidate
+
+supply_chain:
+  stages: [need, local-search, external-discovery, evaluate, approve, pin, vendor-or-reference, assign, measure, retain-or-demote]
+  rule: External directories are discovery indexes, not runtime dependencies.
+  approved_external_must_record: [source, repository, pinned_commit_or_version, license, reviewer, approved_date, permitted_agents, dependencies, risks]
 
 skills:
   skill-resolution:
     path: skills/skill-resolver/SKILL.md
     trust: owned
-    agents: [router, w-dog, zoie, bill, eugene]
-    triggers:
-      - specialized capability required
-      - missing capability
-      - select skills
-      - external skill discovery
+    agents: [router, w-dog, zoie, bill, eugene, steward, designer, rook, scout, ledger]
+    triggers: [specialized capability required, missing capability, select skills, external skill discovery]
+  task-routing: {trust: owned, embedded_in: agents/router/IDENTITY.md, preferred_agents: [router]}
 
-  root-cause-analysis:
-    trust: planned
-    preferred_agents: [w-dog, eugene]
-  change-impact-analysis:
-    trust: planned
-    preferred_agents: [w-dog]
-  knowledge-consistency:
-    trust: planned
-    preferred_agents: [w-dog]
-  verification-design:
-    trust: planned
-    preferred_agents: [w-dog, eugene]
+  root-cause-analysis: {trust: planned, preferred_agents: [w-dog, eugene]}
+  change-impact-analysis: {trust: planned, preferred_agents: [w-dog]}
+  knowledge-consistency: {trust: planned, preferred_agents: [w-dog]}
+  verification-design: {trust: planned, preferred_agents: [w-dog, eugene]}
 
-  opportunity-analysis:
-    trust: planned
-    preferred_agents: [zoie]
-  market-research:
-    trust: planned
-    preferred_agents: [zoie]
-  business-model-analysis:
-    trust: planned
-    preferred_agents: [zoie]
-  experiment-design:
-    trust: planned
-    preferred_agents: [zoie]
+  opportunity-analysis: {trust: planned, preferred_agents: [zoie]}
+  market-research: {trust: planned, preferred_agents: [zoie, scout]}
+  business-model-analysis: {trust: planned, preferred_agents: [zoie, ledger]}
+  experiment-design: {trust: planned, preferred_agents: [zoie, designer, scout]}
 
-  dependency-mapping:
-    trust: planned
-    preferred_agents: [bill]
-  execution-planning:
-    trust: planned
-    preferred_agents: [bill]
-  critical-path-analysis:
-    trust: planned
-    preferred_agents: [bill]
-  operational-readiness:
-    trust: planned
-    preferred_agents: [bill]
+  dependency-mapping: {trust: planned, preferred_agents: [bill]}
+  execution-planning: {trust: planned, preferred_agents: [bill]}
+  critical-path-analysis: {trust: planned, preferred_agents: [bill]}
+  operational-readiness: {trust: planned, preferred_agents: [bill, w-dog]}
 
-  software-architecture:
-    trust: planned
-    preferred_agents: [eugene]
-  implementation:
-    trust: planned
-    preferred_agents: [eugene]
-  debugging:
-    trust: planned
-    preferred_agents: [eugene]
-  testing:
-    trust: planned
-    preferred_agents: [eugene]
-  technical-review:
-    trust: planned
-    preferred_agents: [eugene, w-dog]
+  software-architecture: {trust: planned, preferred_agents: [eugene]}
+  implementation: {trust: planned, preferred_agents: [eugene]}
+  debugging: {trust: planned, preferred_agents: [eugene, w-dog]}
+  testing: {trust: planned, preferred_agents: [eugene, w-dog, rook]}
+  technical-review: {trust: planned, preferred_agents: [eugene, w-dog]}
 
-  task-routing:
-    trust: owned
-    embedded_in: agents/router/IDENTITY.md
-    preferred_agents: [router]
+  objective-design: {trust: planned, preferred_agents: [steward]}
+  kpi-design: {trust: planned, preferred_agents: [steward, ledger]}
+  portfolio-prioritization: {trust: planned, preferred_agents: [steward, ledger]}
+  decision-analysis: {trust: planned, preferred_agents: [steward]}
+
+  ux-research: {trust: planned, preferred_agents: [designer, scout]}
+  interaction-design: {trust: planned, preferred_agents: [designer]}
+  information-architecture: {trust: planned, preferred_agents: [designer]}
+  accessibility-review: {trust: planned, preferred_agents: [designer, eugene]}
+
+  threat-modeling: {trust: planned, preferred_agents: [rook, eugene]}
+  adversarial-testing: {trust: planned, preferred_agents: [rook, eugene]}
+  privacy-review: {trust: planned, preferred_agents: [rook]}
+  failure-mode-analysis: {trust: planned, preferred_agents: [rook, w-dog]}
+
+  customer-research: {trust: planned, preferred_agents: [scout, designer]}
+  competitive-intelligence: {trust: planned, preferred_agents: [scout, zoie]}
+  market-monitoring: {trust: planned, preferred_agents: [scout]}
+  growth-analysis: {trust: planned, preferred_agents: [scout, zoie, ledger]}
+
+  financial-modeling: {trust: planned, preferred_agents: [ledger]}
+  unit-economics: {trust: planned, preferred_agents: [ledger, steward]}
+  roi-analysis: {trust: planned, preferred_agents: [ledger, steward]}
+  forecasting: {trust: planned, preferred_agents: [ledger]}
 
 candidate_review:
-  required_checks:
-    - relevance
-    - source-and-repository-provenance
-    - instruction-safety
-    - dependency-and-tool-requirements
-    - conflict-with-agent-os-policies
-    - overlap-with-existing-skills
-    - context-cost
-    - expected-quality-gain
-  approval_record_should_include:
-    - source
-    - repository
-    - pinned_commit_or_version
-    - reviewer
-    - approved_date
-    - permitted_agents
-    - known_dependencies
-    - known_risks
+  required_checks: [relevance, source-and-repository-provenance, license, instruction-safety, dependency-and-tool-requirements, conflict-with-agent-os-policies, overlap-with-existing-skills, context-cost, expected-quality-gain]
+  approval_record_should_include: [source, repository, pinned_commit_or_version, license, reviewer, approved_date, permitted_agents, known_dependencies, known_risks]
