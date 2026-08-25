@@ -1,0 +1,124 @@
+version: 0.1.0
+
+policy:
+  selection: minimum-sufficient-set
+  prefer_local: true
+  external_discovery_allowed: true
+  auto_install_external: false
+  require_review_before_approval: true
+  record_usefulness: true
+
+trust_levels:
+  owned:
+    description: Authored and maintained inside Agent OS.
+    usable: true
+  approved:
+    description: External or imported skill reviewed, pinned, and accepted.
+    usable: true
+  candidate:
+    description: Discovered but not yet reviewed or pinned.
+    usable: false
+  blocked:
+    description: Rejected for safety, quality, conflict, provenance, or redundancy.
+    usable: false
+
+external_sources:
+  - name: antigravity-skills-directory
+    url: https://antigravityskills.directory/
+    mode: discovery-only
+    trust: candidate
+  - name: github
+    url: https://github.com/
+    mode: discovery-only
+    trust: candidate
+
+skills:
+  skill-resolution:
+    path: skills/skill-resolver/SKILL.md
+    trust: owned
+    agents: [router, w-dog, zoie, bill, eugene]
+    triggers:
+      - specialized capability required
+      - missing capability
+      - select skills
+      - external skill discovery
+
+  root-cause-analysis:
+    trust: planned
+    preferred_agents: [w-dog, eugene]
+  change-impact-analysis:
+    trust: planned
+    preferred_agents: [w-dog]
+  knowledge-consistency:
+    trust: planned
+    preferred_agents: [w-dog]
+  verification-design:
+    trust: planned
+    preferred_agents: [w-dog, eugene]
+
+  opportunity-analysis:
+    trust: planned
+    preferred_agents: [zoie]
+  market-research:
+    trust: planned
+    preferred_agents: [zoie]
+  business-model-analysis:
+    trust: planned
+    preferred_agents: [zoie]
+  experiment-design:
+    trust: planned
+    preferred_agents: [zoie]
+
+  dependency-mapping:
+    trust: planned
+    preferred_agents: [bill]
+  execution-planning:
+    trust: planned
+    preferred_agents: [bill]
+  critical-path-analysis:
+    trust: planned
+    preferred_agents: [bill]
+  operational-readiness:
+    trust: planned
+    preferred_agents: [bill]
+
+  software-architecture:
+    trust: planned
+    preferred_agents: [eugene]
+  implementation:
+    trust: planned
+    preferred_agents: [eugene]
+  debugging:
+    trust: planned
+    preferred_agents: [eugene]
+  testing:
+    trust: planned
+    preferred_agents: [eugene]
+  technical-review:
+    trust: planned
+    preferred_agents: [eugene, w-dog]
+
+  task-routing:
+    trust: owned
+    embedded_in: agents/router/IDENTITY.md
+    preferred_agents: [router]
+
+candidate_review:
+  required_checks:
+    - relevance
+    - source-and-repository-provenance
+    - instruction-safety
+    - dependency-and-tool-requirements
+    - conflict-with-agent-os-policies
+    - overlap-with-existing-skills
+    - context-cost
+    - expected-quality-gain
+  approval_record_should_include:
+    - source
+    - repository
+    - pinned_commit_or_version
+    - reviewer
+    - approved_date
+    - permitted_agents
+    - known_dependencies
+    - known_risks
