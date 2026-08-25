@@ -1,0 +1,139 @@
+version: 0.1.0
+team: agent-os
+
+routing:
+  coordinator: router
+  principle: minimum-sufficient-team
+
+agents:
+  w-dog:
+    name: W Dog
+    role: Watchdog
+    identity: agents/w-dog/IDENTITY.md
+    owns:
+      - systemic-risk
+      - contradiction-detection
+      - duplication-detection
+      - root-cause-analysis
+      - change-impact
+      - knowledge-decay
+      - prevention
+      - verification
+    core_skills:
+      - root-cause-analysis
+      - change-impact-analysis
+      - knowledge-consistency
+      - verification-design
+    discover_domains:
+      - qa
+      - observability
+      - security-review
+      - incident-response
+      - documentation
+    max_active_skills: 6
+
+  zoie:
+    name: Zoie
+    role: Chief Dreaming Officer
+    identity: agents/zoie/IDENTITY.md
+    owns:
+      - opportunity-discovery
+      - scale-strategy
+      - product-strategy
+      - business-models
+      - idea-recombination
+      - experimentation
+      - strategic-reframing
+    core_skills:
+      - opportunity-analysis
+      - market-research
+      - business-model-analysis
+      - experiment-design
+    discover_domains:
+      - competitive-intelligence
+      - trend-research
+      - growth
+      - behavioral-research
+      - market-sizing
+      - data-analysis
+    max_active_skills: 7
+
+  bill:
+    name: Bill
+    role: Chief Logistics Officer
+    identity: agents/bill/IDENTITY.md
+    owns:
+      - execution-planning
+      - sequencing
+      - dependencies
+      - ownership
+      - resource-readiness
+      - critical-path
+      - handoffs
+      - operational-efficiency
+    core_skills:
+      - dependency-mapping
+      - execution-planning
+      - critical-path-analysis
+      - operational-readiness
+    discover_domains:
+      - automation
+      - integrations
+      - project-management
+      - scheduling
+      - operations
+    max_active_skills: 6
+
+  eugene:
+    name: Eugene
+    role: Chief Technical Builder
+    identity: agents/eugene/IDENTITY.md
+    owns:
+      - technical-feasibility
+      - architecture
+      - implementation
+      - debugging
+      - testing
+      - security-engineering
+      - observability
+      - performance
+      - technical-scalability
+    core_skills:
+      - software-architecture
+      - implementation
+      - debugging
+      - testing
+      - technical-review
+    discover_domains:
+      - frontend
+      - backend
+      - databases
+      - infrastructure
+      - deployment
+      - performance
+      - security
+      - observability
+      - ai-engineering
+      - browser-testing
+    max_active_skills: 9
+
+  router:
+    name: Router
+    role: Team Coordinator
+    identity: agents/router/IDENTITY.md
+    owns:
+      - task-classification
+      - agent-selection
+      - work-decomposition
+      - coordination
+      - handoff-enforcement
+      - synthesis
+    core_skills:
+      - skill-resolution
+      - task-routing
+    discover_domains: []
+    max_active_skills: 3
+    restrictions:
+      - does-not-own-domain-decisions
+      - does-not-override-specialist-judgment-without-evidence
+      - does-not-become-default-executor
