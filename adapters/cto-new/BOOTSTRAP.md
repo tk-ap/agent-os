@@ -1,46 +1,43 @@
 # cto.new Adapter Bootstrap
 
-Use this adapter when Agent OS is available alongside a cto.new product workspace.
+Use this adapter when Agent OS is available alongside a cto.new product workspace. cto.new is an agentic execution harness; it does not become the ecosystem's portfolio, workforce, context, or authorization owner.
 
 ## Workspace Contract
 
 - **Product repository:** primary working tree; read/write according to workspace permissions.
 - **Agent OS repository:** shared operating layer; treat as read-only unless the task explicitly concerns Agent OS itself.
 - **Product-local instructions:** authoritative for product-specific architecture, conventions, design system, deployment, secrets, and acceptance criteria.
-- **Agent OS:** authoritative for role routing, handoffs, autonomy policy, skill resolution, and reusable capability procedures.
+- **Agent OS:** authoritative for ecosystem boundaries, role routing, handoffs, autonomy policy, shared contracts, skill resolution, and reusable capability procedures.
 
 ## Load Order
 
-1. Read product-repository instructions first (`AGENTS.md`, README, project docs, or equivalent).
-2. Read Agent OS `BOOTSTRAP.md`.
-3. Read `registry/agents.yaml`.
-4. Read `policies/AUTONOMY_POLICY.md` and `policies/HANDOFF_POLICY.md`.
-5. Read `skills/skill-resolver/SKILL.md`.
-6. Select the minimum sufficient agent roles.
-7. Load only the selected identities and approved skills.
+1. Read product-repository instructions (`AGENTS.md`, README, project docs, or equivalent).
+2. Read Agent OS `BOOTSTRAP.md`, `ecosystem/ECOSYSTEM.md`, and `ecosystem/products.yaml`.
+3. If present, read the product repository's `.agent-os/product.yaml`, `.agent-os/integration-surface.yaml`, and matching `products/*.md` directive.
+4. Read `registry/agents.yaml`.
+5. Read `policies/AUTONOMY_POLICY.md` and `policies/HANDOFF_POLICY.md`.
+6. Read `skills/skill-resolver/SKILL.md`.
+7. Select the minimum sufficient agent roles and approved skills.
 8. Work only in the product repository unless explicitly authorized otherwise.
-9. Verify the result in the product environment before declaring completion.
+9. Verify the result in the product environment.
+10. Report product result, ecosystem implications, cross-product opportunities, and boundary check.
 
 ## Single-Runner Multi-Agent Mode
 
 If cto.new exposes one executing agent rather than separate concurrent workers, simulate the Agent OS team sequentially without pretending they are independent processes.
 
-Recommended flow:
-
-1. **Router** classifies the task and selects roles.
+1. **Router** classifies the task, product owner, and required contracts.
 2. Relevant specialists analyze only their decision layer.
-3. **Bill** converts accepted decisions into an execution sequence when needed.
+3. **Bill** converts accepted decisions into an execution sequence and confirms harness fit.
 4. The executing technical role performs product-repo changes.
 5. **Rook** performs adversarial/control review when material.
 6. **W Dog** performs systemic verification/recurrence checks when material.
-7. **Steward** reviews outcome against initiative/KPI when the task is initiative-level.
+7. **Steward** reviews outcome and ecosystem-boundary impact when material.
 8. Router synthesizes unresolved issues and closes the task.
 
-Do not load every role. Skip any perspective that would not materially improve the outcome.
+Do not load every role. Skip any perspective or cross-product call that would not materially improve the outcome.
 
 ## Repository Permissions
-
-Preferred access model:
 
 ```yaml
 product_repo:
@@ -53,7 +50,15 @@ agent_os:
   write: false
 ```
 
-If Agent OS is writable in the environment, still treat it as read-only by policy unless the task explicitly requests an Agent OS change.
+If Agent OS is writable, still treat it as read-only unless the task explicitly requests an Agent OS change.
+
+## Ecosystem Boundary Rules
+
+- Keep ALVIRA context authorship, Bridge context distribution, Ailhat portfolio priority, Agent OS workforce routing, and Ledgato operational authority distinct.
+- Use contracts under `contracts/` for cross-product handoffs.
+- Do not hard-code cto.new into portable work items or product contracts; record it as the selected harness on the outcome event.
+- Propose cross-product work to the owning product rather than editing another product repository without authorization.
+- Promote another product only after the current value moment and only when it solves the next visible user need.
 
 ## Skill Use
 
@@ -61,17 +66,17 @@ If Agent OS is writable in the environment, still treat it as read-only by polic
 - Prefer `owned` and `approved` vendored skills.
 - Do not execute candidate external skills merely because they are discoverable.
 - Load only capabilities needed for the current task.
-- Product-specific instructions override generic skill preferences when they conflict, unless doing so would violate higher-order safety or security policy.
+- Product-specific instructions override generic skill preferences when they conflict, unless doing so would violate higher-order safety, security, authority, or ecosystem-boundary policy.
 
-## cto.new Execution Pattern
+## Execution Pattern
 
-For implementation work:
+Implementation:
 
-`REQUEST → ROUTE → SPECIALIST ANALYSIS → PLAN → MODIFY PRODUCT REPO → TEST/VERIFY → CONTROL CHECK → PR/DELIVERY`
+`REQUEST -> BOUNDARY CHECK -> ROUTE -> SPECIALIST ANALYSIS -> PLAN -> AUTHORITY CHECK -> MODIFY PRODUCT REPO -> TEST/VERIFY -> EVIDENCE -> OUTCOME EVENT`
 
-For analysis-only work:
+Analysis only:
 
-`REQUEST → ROUTE → MINIMUM SPECIALISTS → SYNTHESIS → RECOMMENDATION`
+`REQUEST -> BOUNDARY CHECK -> ROUTE -> MINIMUM SPECIALISTS -> SYNTHESIS -> RECOMMENDATION`
 
 ## Human Escalation
 
@@ -79,11 +84,5 @@ Follow `policies/AUTONOMY_POLICY.md`. Do not interrupt merely because uncertaint
 
 ## Completion Standard
 
-A cto.new task is not complete merely because code changed. Completion requires:
+A cto.new task is not complete merely because code changed. Completion requires the requested outcome addressed; product-local constraints honored; relevant checks run; material authority and risk concerns reviewed; blockers disclosed; product behavior verified where possible; cross-product implications reported; and evidence returned for outcome measurement.
 
-- requested outcome addressed;
-- relevant product-local constraints honored;
-- tests/checks run where available;
-- material security/permission/irreversibility concerns reviewed;
-- no known unresolved blocker hidden from the user;
-- resulting product behavior verified when the environment permits it.

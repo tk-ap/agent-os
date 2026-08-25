@@ -1,0 +1,10 @@
+version: 0.1.0
+product: replace-me
+ecosystem_source: tk-ap/agent-os
+ecosystem_contract: ecosystem/ECOSYSTEM.md
+product_directive: products/replace-me.md
+owns: []
+produces: []
+consumes: []
+must_not_own: []
+

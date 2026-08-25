@@ -1,0 +1,52 @@
+version: 0.1.0
+ecosystem: alvira
+
+products:
+  alvira:
+    repo: tk-ap/ALVIRA
+    category: context-intelligence
+    owns: [context-elicitation, context-structure, context-validation, context-versioning, context-source-of-truth]
+    produces: [context-reference, context-version]
+    consumes: [reflection-input, source-material]
+    must_not_own: [destination-distribution, portfolio-prioritization, workforce-routing, runtime-authorization, harness-execution]
+
+  alvira-bridge:
+    repo: tk-ap/alvira-bridge
+    category: context-interoperability
+    owns: [context-distribution, context-consent, context-scoping, connected-access, context-revocation]
+    produces: [context-envelope, context-access-event]
+    consumes: [context-reference, context-version]
+    must_not_own: [context-source-of-truth, portfolio-prioritization, workforce-routing, operational-authorization]
+
+  ailhat:
+    repo: tk-ap/ailhat
+    category: portfolio-intelligence
+    owns: [portfolio-observation, signal-classification, prioritization, initiative-creation, outcome-measurement]
+    produces: [portfolio-signal, work-item, objective, outcome-assessment]
+    consumes: [product-evidence, workforce-status, authority-status, outcome-event]
+    must_not_own: [canonical-agent-identity, skill-resolution, runtime-authorization, harness-specific-execution]
+
+  agent-os:
+    repo: tk-ap/agent-os
+    category: workforce-intelligence
+    owns: [agent-identity, skill-resolution, team-composition, routing, workflows, handoffs, harness-selection]
+    produces: [capability-manifest, authority-request, execution-plan, workforce-status]
+    consumes: [work-item, context-envelope, authority-decision, outcome-event]
+    must_not_own: [portfolio-priority, context-source-of-truth, operational-authorization]
+
+  ledgato:
+    repo: tk-ap/ledgato
+    category: authorization-intelligence
+    owns: [authority-graph, policy-evaluation, approval, denial, runtime-enforcement, verification, attestation]
+    produces: [authority-decision, authority-status, signed-evidence]
+    consumes: [authority-request, capability-manifest, initiative-constraints, execution-evidence]
+    must_not_own: [context-authorship, portfolio-priority, workforce-planning, harness-selection]
+
+  agentic-harness-layer:
+    category: execution-substrate
+    examples: [cto-new, codex, claude-code, cursor, custom-agents, apis, automations]
+    owns: [bounded-execution, harness-native-verification, execution-evidence]
+    produces: [outcome-event, execution-evidence, artifacts]
+    consumes: [work-item, context-envelope, authority-decision]
+    must_not_own: [portfolio-priority, canonical-workforce, business-authorization]
+

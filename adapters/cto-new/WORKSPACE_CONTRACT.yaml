@@ -1,5 +1,6 @@
-version: 0.1.0
+version: 0.2.0
 adapter: cto-new
+harness_class: agentic-execution
 
 repositories:
   product:
@@ -11,11 +12,12 @@ repositories:
     role: operating-layer
     preferred_access: read-only
     may_modify: false
-    authority: workforce-policy-and-capability
+    authority: workforce-policy-ecosystem-contracts-and-capability
 
 precedence:
   - platform-and-system-rules
   - product-repository-instructions
+  - agent-os-ecosystem-boundaries
   - agent-os-policies
   - selected-agent-identity
   - selected-approved-skills
@@ -26,8 +28,14 @@ execution:
   single_runner_supported: true
   load_all_agents: false
   load_all_skills: false
+  require_boundary_check: true
   require_verification: true
+  require_ecosystem_delta: true
   default_delivery: product-repository-change
+
+portability:
+  hard_code_harness_in_shared_contracts: false
+  outcome_event_records_selected_harness: true
 
 agent_os_write_policy:
   default: deny
@@ -35,10 +43,12 @@ agent_os_write_policy:
     - task-explicitly-targets-agent-os
     - user-explicitly-authorizes-agent-os-change
 
+cross_product_write_policy:
+  default: propose-handoff
+  direct_write_requires: explicit-task-authorization
+
 skill_policy:
-  allowed_trust_levels:
-    - owned
-    - approved
+  allowed_trust_levels: [owned, approved]
   candidate_execution: false
   prefer_vendored: true
   external_discovery: resolver-governed
@@ -46,3 +56,4 @@ skill_policy:
 escalation:
   policy: policies/AUTONOMY_POLICY.md
   do_not_escalate_for_uncertainty_alone: true
+

@@ -1,0 +1,41 @@
+version: 0.1.0
+
+journeys:
+  context-to-use:
+    trigger: alvira-profile-ready
+    steps:
+      - product: alvira
+        action: produce-context-reference
+      - product: alvira-bridge
+        action: authorize-and-distribute-context
+      - product: agentic-harness-layer
+        action: consume-context
+
+  signal-to-outcome:
+    trigger: ailhat-finding-actionable
+    steps:
+      - product: ailhat
+        action: produce-work-item
+      - product: agent-os
+        action: compose-workforce-and-plan
+      - product: alvira-bridge
+        action: resolve-context-envelope
+      - product: ledgato
+        action: resolve-authority
+      - product: agentic-harness-layer
+        action: execute-bounded-work
+      - product: ailhat
+        action: measure-outcome
+
+  workforce-to-execution:
+    trigger: execution-plan-ready
+    steps:
+      - product: agent-os
+        action: select-harness
+      - product: ledgato
+        action: authorize-capabilities
+      - product: agentic-harness-layer
+        action: execute-and-return-evidence
+      - product: agent-os
+        action: close-handoff
+

@@ -1,9 +1,10 @@
-version: 0.2.0
+version: 0.3.0
 team: agent-os
 
 routing:
   coordinator: router
   objective_owner: steward
+  ecosystem_boundary_owner: steward
   principle: minimum-sufficient-team
 
 agents:
@@ -29,9 +30,9 @@ agents:
     name: Bill
     role: Chief Logistics Officer
     identity: agents/bill/IDENTITY.md
-    owns: [execution-planning, sequencing, dependencies, ownership, resource-readiness, critical-path, handoffs, operational-efficiency]
+    owns: [execution-planning, sequencing, dependencies, ownership, resource-readiness, critical-path, handoffs, operational-efficiency, harness-selection]
     core_skills: [dependency-mapping, execution-planning, critical-path-analysis, operational-readiness]
-    discover_domains: [automation, integrations, project-management, scheduling, operations]
+    discover_domains: [automation, integrations, project-management, scheduling, operations, agentic-harnesses]
     max_active_skills: 6
 
   eugene:
@@ -47,10 +48,10 @@ agents:
     name: Steward
     role: Chief Initiative Officer
     identity: agents/steward/IDENTITY.md
-    owns: [business-objectives, initiative-portfolio, kpis, prioritization, outcome-review, continue-change-stop, attention-allocation]
+    owns: [business-objectives, initiative-portfolio, kpis, prioritization, outcome-review, continue-change-stop, attention-allocation, ecosystem-boundaries, contract-impact-review, cross-product-opportunity-routing]
     core_skills: [objective-design, kpi-design, portfolio-prioritization, decision-analysis]
-    discover_domains: [strategy-execution, analytics, portfolio-management, decision-science]
-    max_active_skills: 6
+    discover_domains: [strategy-execution, analytics, portfolio-management, decision-science, ecosystem-governance]
+    max_active_skills: 7
 
   designer:
     name: Designer
@@ -74,7 +75,7 @@ agents:
     name: Scout
     role: Chief Growth & Intelligence Officer
     identity: agents/scout/IDENTITY.md
-    owns: [customer-intelligence, competitor-monitoring, distribution-intelligence, sales-signals, support-signals, pricing-evidence, market-monitoring, partnerships]
+    owns: [customer-intelligence, competitor-monitoring, distribution-intelligence, sales-signals, support-signals, pricing-evidence, market-monitoring, partnerships, cross-market-evidence]
     core_skills: [customer-research, competitive-intelligence, market-monitoring, growth-analysis]
     discover_domains: [sales, marketing, seo, distribution, partnerships, pricing, research]
     max_active_skills: 7
@@ -92,8 +93,9 @@ agents:
     name: Router
     role: Team Coordinator
     identity: agents/router/IDENTITY.md
-    owns: [task-classification, agent-selection, work-decomposition, coordination, handoff-enforcement, synthesis]
+    owns: [task-classification, agent-selection, work-decomposition, coordination, handoff-enforcement, synthesis, cross-product-routing]
     core_skills: [skill-resolution, task-routing]
     discover_domains: []
     max_active_skills: 3
-    restrictions: [does-not-own-domain-decisions, does-not-override-specialist-judgment-without-evidence, does-not-become-default-executor]
+    restrictions: [does-not-own-domain-decisions, does-not-override-specialist-judgment-without-evidence, does-not-become-default-executor, does-not-bypass-product-contracts]
+

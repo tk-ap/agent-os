@@ -1,0 +1,38 @@
+version: 0.1.0
+
+integrations:
+  - from: alvira
+    to: alvira-bridge
+    contract: context-reference
+    trigger: user-wants-context-in-another-tool
+
+  - from: ailhat
+    to: agent-os
+    contract: contracts/work-item.schema.json
+    trigger: finding-approved-for-action
+
+  - from: agent-os
+    to: alvira-bridge
+    contract: contracts/context-envelope.schema.json
+    trigger: workforce-requires-context
+
+  - from: agent-os
+    to: ledgato
+    contract: contracts/authority-request.schema.json
+    trigger: plan-requires-operational-action
+
+  - from: agent-os
+    to: agentic-harness-layer
+    contract: contracts/work-item.schema.json
+    trigger: authorized-plan-ready
+
+  - from: agentic-harness-layer
+    to: ailhat
+    contract: contracts/outcome-event.schema.json
+    trigger: execution-completed-or-blocked
+
+  - from: agentic-harness-layer
+    to: ledgato
+    contract: execution-evidence
+    trigger: governed-action-attempted
+
