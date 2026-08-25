@@ -1,8 +1,9 @@
-version: 0.1.0
+version: 0.2.0
 team: agent-os
 
 routing:
   coordinator: router
+  objective_owner: steward
   principle: minimum-sufficient-team
 
 agents:
@@ -10,130 +11,89 @@ agents:
     name: W Dog
     role: Watchdog
     identity: agents/w-dog/IDENTITY.md
-    owns:
-      - systemic-risk
-      - contradiction-detection
-      - duplication-detection
-      - root-cause-analysis
-      - change-impact
-      - knowledge-decay
-      - prevention
-      - verification
-    core_skills:
-      - root-cause-analysis
-      - change-impact-analysis
-      - knowledge-consistency
-      - verification-design
-    discover_domains:
-      - qa
-      - observability
-      - security-review
-      - incident-response
-      - documentation
+    owns: [systemic-risk, contradiction-detection, duplication-detection, root-cause-analysis, change-impact, knowledge-decay, prevention, verification]
+    core_skills: [root-cause-analysis, change-impact-analysis, knowledge-consistency, verification-design]
+    discover_domains: [qa, observability, security-review, incident-response, documentation]
     max_active_skills: 6
 
   zoie:
     name: Zoie
     role: Chief Dreaming Officer
     identity: agents/zoie/IDENTITY.md
-    owns:
-      - opportunity-discovery
-      - scale-strategy
-      - product-strategy
-      - business-models
-      - idea-recombination
-      - experimentation
-      - strategic-reframing
-    core_skills:
-      - opportunity-analysis
-      - market-research
-      - business-model-analysis
-      - experiment-design
-    discover_domains:
-      - competitive-intelligence
-      - trend-research
-      - growth
-      - behavioral-research
-      - market-sizing
-      - data-analysis
+    owns: [opportunity-discovery, scale-strategy, product-strategy, business-models, idea-recombination, experimentation, strategic-reframing]
+    core_skills: [opportunity-analysis, market-research, business-model-analysis, experiment-design]
+    discover_domains: [competitive-intelligence, trend-research, growth, behavioral-research, market-sizing, data-analysis]
     max_active_skills: 7
 
   bill:
     name: Bill
     role: Chief Logistics Officer
     identity: agents/bill/IDENTITY.md
-    owns:
-      - execution-planning
-      - sequencing
-      - dependencies
-      - ownership
-      - resource-readiness
-      - critical-path
-      - handoffs
-      - operational-efficiency
-    core_skills:
-      - dependency-mapping
-      - execution-planning
-      - critical-path-analysis
-      - operational-readiness
-    discover_domains:
-      - automation
-      - integrations
-      - project-management
-      - scheduling
-      - operations
+    owns: [execution-planning, sequencing, dependencies, ownership, resource-readiness, critical-path, handoffs, operational-efficiency]
+    core_skills: [dependency-mapping, execution-planning, critical-path-analysis, operational-readiness]
+    discover_domains: [automation, integrations, project-management, scheduling, operations]
     max_active_skills: 6
 
   eugene:
     name: Eugene
     role: Chief Technical Builder
     identity: agents/eugene/IDENTITY.md
-    owns:
-      - technical-feasibility
-      - architecture
-      - implementation
-      - debugging
-      - testing
-      - security-engineering
-      - observability
-      - performance
-      - technical-scalability
-    core_skills:
-      - software-architecture
-      - implementation
-      - debugging
-      - testing
-      - technical-review
-    discover_domains:
-      - frontend
-      - backend
-      - databases
-      - infrastructure
-      - deployment
-      - performance
-      - security
-      - observability
-      - ai-engineering
-      - browser-testing
+    owns: [technical-feasibility, architecture, implementation, debugging, testing, security-engineering, observability, performance, technical-scalability]
+    core_skills: [software-architecture, implementation, debugging, testing, technical-review]
+    discover_domains: [frontend, backend, databases, infrastructure, deployment, performance, security, observability, ai-engineering, browser-testing]
     max_active_skills: 9
+
+  steward:
+    name: Steward
+    role: Chief Initiative Officer
+    identity: agents/steward/IDENTITY.md
+    owns: [business-objectives, initiative-portfolio, kpis, prioritization, outcome-review, continue-change-stop, attention-allocation]
+    core_skills: [objective-design, kpi-design, portfolio-prioritization, decision-analysis]
+    discover_domains: [strategy-execution, analytics, portfolio-management, decision-science]
+    max_active_skills: 6
+
+  designer:
+    name: Designer
+    role: Chief Experience Officer
+    identity: agents/designer/IDENTITY.md
+    owns: [user-experience, interaction-design, information-architecture, usability, accessibility-experience, product-comprehension, experience-consistency]
+    core_skills: [ux-research, interaction-design, information-architecture, accessibility-review]
+    discover_domains: [product-design, prototyping, design-systems, usability-testing, content-design]
+    max_active_skills: 7
+
+  rook:
+    name: Rook
+    role: Chief Adversarial Officer
+    identity: agents/rook/IDENTITY.md
+    owns: [adversarial-review, threat-modeling, abuse-analysis, privacy-risk, permission-risk, agent-misuse, irreversible-action-review, failure-modes]
+    core_skills: [threat-modeling, adversarial-testing, privacy-review, failure-mode-analysis]
+    discover_domains: [security, red-teaming, fraud, privacy, compliance, agent-safety]
+    max_active_skills: 7
+
+  scout:
+    name: Scout
+    role: Chief Growth & Intelligence Officer
+    identity: agents/scout/IDENTITY.md
+    owns: [customer-intelligence, competitor-monitoring, distribution-intelligence, sales-signals, support-signals, pricing-evidence, market-monitoring, partnerships]
+    core_skills: [customer-research, competitive-intelligence, market-monitoring, growth-analysis]
+    discover_domains: [sales, marketing, seo, distribution, partnerships, pricing, research]
+    max_active_skills: 7
+
+  ledger:
+    name: Ledger
+    role: Chief Economics Officer
+    identity: agents/ledger/IDENTITY.md
+    owns: [initiative-economics, roi, unit-economics, budget-analysis, spend-analysis, forecasts, opportunity-cost, financial-thresholds]
+    core_skills: [financial-modeling, unit-economics, roi-analysis, forecasting]
+    discover_domains: [finance, accounting, pricing, cost-optimization, scenario-modeling]
+    max_active_skills: 6
 
   router:
     name: Router
     role: Team Coordinator
     identity: agents/router/IDENTITY.md
-    owns:
-      - task-classification
-      - agent-selection
-      - work-decomposition
-      - coordination
-      - handoff-enforcement
-      - synthesis
-    core_skills:
-      - skill-resolution
-      - task-routing
+    owns: [task-classification, agent-selection, work-decomposition, coordination, handoff-enforcement, synthesis]
+    core_skills: [skill-resolution, task-routing]
     discover_domains: []
     max_active_skills: 3
-    restrictions:
-      - does-not-own-domain-decisions
-      - does-not-override-specialist-judgment-without-evidence
-      - does-not-become-default-executor
+    restrictions: [does-not-own-domain-decisions, does-not-override-specialist-judgment-without-evidence, does-not-become-default-executor]
