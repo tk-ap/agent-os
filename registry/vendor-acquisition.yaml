@@ -1,0 +1,81 @@
+version: 0.1.0
+status: plan-only
+activation_rule: Candidates remain non-executable until reviewed, adapted, validated, and explicitly marked approved in registry/skills.yaml.
+
+sources:
+  agentic-awesome-skills:
+    repository: sickn33/agentic-awesome-skills
+    pinned_commit: d91ed427d91596da3fcab6dd26ff3306c8003ce5
+    release_observed: v16.4.0
+    license: verify per candidate and upstream source before acquisition
+  vercel-agent-skills:
+    repository: vercel-labs/agent-skills
+    pinned_commit: 063bee94c3f4df8453406c830b0a7df0f2860278
+    license: verify from repository and skill before acquisition
+
+candidates:
+  - id: frontend-design
+    source: agentic-awesome-skills
+    path: skills/frontend-design/SKILL.md
+    intended_scope: product-local public interface and ASHWOOD editorial design
+    proposed_agents: [designer, eugene]
+    risk: critical; requires instruction-safety and anti-overreach adaptation
+    priority: p1
+  - id: browser-testing-with-devtools
+    source: agentic-awesome-skills
+    path: skills/browser-testing-with-devtools/SKILL.md
+    intended_scope: rendered browser, console, network, responsive, accessibility, and performance verification
+    proposed_agents: [eugene, w-dog, designer]
+    risk: critical; tool and permission assumptions require adaptation
+    priority: p0
+  - id: accessibility-audit
+    source: agentic-awesome-skills
+    path: skills/accessibility-compliance-accessibility-audit/SKILL.md
+    intended_scope: public product and portfolio accessibility review
+    proposed_agents: [designer, eugene, w-dog]
+    risk: review dependencies and compliance claims
+    priority: p1
+  - id: security-hardening
+    source: agentic-awesome-skills
+    path: skills/security-scanning-security-hardening/SKILL.md
+    intended_scope: authorized application and agent boundary hardening
+    proposed_agents: [rook, eugene, w-dog]
+    risk: critical; must remove unsupported subagent, tooling, compliance, and autonomous-remediation assumptions
+    priority: p0
+  - id: agent-memory-systems
+    source: agentic-awesome-skills
+    path: skills/agent-memory-systems/SKILL.md
+    intended_scope: ALVIRA/MeOS and workforce memory architecture
+    proposed_agents: [eugene, w-dog, rook]
+    risk: validate privacy, retention, vendor, and cost assumptions
+    priority: p1
+  - id: react-best-practices
+    source: vercel-agent-skills
+    path: skills/react-best-practices/SKILL.md
+    intended_scope: React product repositories only
+    proposed_agents: [eugene, designer]
+    risk: framework-specific; do not load for non-React repositories
+    priority: p1
+  - id: web-design-guidelines
+    source: vercel-agent-skills
+    path: skills/web-design-guidelines/SKILL.md
+    intended_scope: review of web interfaces after implementation
+    proposed_agents: [designer, w-dog]
+    risk: review upstream tool assumptions and avoid overriding product art direction
+    priority: p1
+  - id: vercel-optimize
+    source: vercel-agent-skills
+    path: skills/vercel-optimize/SKILL.md
+    intended_scope: Vercel adapter only; deployment cost, performance, and runtime investigation
+    proposed_agents: [eugene, ledger, w-dog]
+    risk: broad skill with scripts and live-account assumptions; acquire only after adapter and dependency review
+    priority: p2
+
+acquisition_checks:
+  - confirm exact pinned path and blob
+  - review license and upstream provenance
+  - inspect all referenced files, scripts, tools, and dependencies
+  - remove instructions that conflict with Agent OS ownership or autonomy policy
+  - define product/environment activation boundaries
+  - run quick validation and realistic forward test
+  - record reviewer, date, permitted agents, risks, and usefulness metric

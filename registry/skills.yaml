@@ -1,4 +1,4 @@
-version: 0.2.0
+version: 0.3.0
 
 policy:
   selection: minimum-sufficient-set
@@ -13,24 +13,19 @@ policy:
 trust_levels:
   owned: {description: Authored and maintained inside Agent OS., usable: true}
   approved: {description: External/imported skill reviewed and pinned., usable: true}
-  candidate: {description: Discovered but not reviewed/pinned., usable: false}
+  candidate: {description: Discovered or acquisition-planned but not approved., usable: false}
   blocked: {description: Rejected for safety, quality, conflict, provenance, or redundancy., usable: false}
-  planned: {description: Capability requirement identified but implementation not yet selected., usable: false}
+  planned: {description: Capability requirement identified but no loadable implementation exists., usable: false}
 
 external_sources:
-  - name: antigravity-skills-directory
-    url: https://antigravityskills.directory/
-    mode: discovery-only
-    trust: candidate
-  - name: github
-    url: https://github.com/
-    mode: discovery-and-pin
-    trust: candidate
+  - {name: agentic-awesome-skills, repository: sickn33/agentic-awesome-skills, mode: discovery-and-pin, trust: candidate}
+  - {name: vercel-agent-skills, repository: vercel-labs/agent-skills, mode: discovery-and-pin, trust: candidate}
+  - {name: github, url: https://github.com/, mode: discovery-and-pin, trust: candidate}
 
 supply_chain:
   stages: [need, local-search, external-discovery, evaluate, approve, pin, vendor-or-reference, assign, measure, retain-or-demote]
-  rule: External directories are discovery indexes, not runtime dependencies.
-  approved_external_must_record: [source, repository, pinned_commit_or_version, license, reviewer, approved_date, permitted_agents, dependencies, risks]
+  rule: External directories and acquisition plans are not runtime dependencies.
+  approved_external_must_record: [path, source, repository, pinned_commit_or_blob, license, review_basis, permitted_agents, dependencies, risks]
 
 skills:
   skill-resolution:
@@ -40,52 +35,93 @@ skills:
     triggers: [specialized capability required, missing capability, select skills, external skill discovery]
   task-routing: {trust: owned, embedded_in: agents/router/IDENTITY.md, preferred_agents: [router]}
 
+  ecosystem-contracts:
+    path: skills/owned/ecosystem-contracts/SKILL.md
+    trust: owned
+    preferred_agents: [eugene, w-dog, rook, bill]
+    triggers: [cross-product interface, shared schema, source-of-truth conflict, environment integration]
+  task-envelope:
+    path: skills/owned/task-envelope/SKILL.md
+    trust: owned
+    preferred_agents: [router, bill, steward, rook, ledger]
+    triggers: [cross-agent work, externally mutating work, ailhat signal routing, sponsored task]
+  context-provenance:
+    path: skills/owned/context-provenance/SKILL.md
+    trust: owned
+    preferred_agents: [w-dog, rook, eugene, designer]
+    triggers: [ALVIRA context, MeOS reflection, interview seeding, agent memory, context transfer]
+  authorization-policy:
+    path: skills/owned/authorization-policy/SKILL.md
+    trust: owned
+    preferred_agents: [rook, eugene, w-dog]
+    triggers: [external mutation, production action, send or publish, credentials, money, sensitive data, irreversible action]
+  audit-evidence-ledger:
+    path: skills/owned/audit-evidence-ledger/SKILL.md
+    trust: owned
+    preferred_agents: [ledger, w-dog, steward, scout]
+    triggers: [approval evidence, execution result, reversal, governance audit, Build Journal source]
+  end-to-end-verification:
+    path: skills/owned/end-to-end-verification/SKILL.md
+    trust: owned
+    preferred_agents: [w-dog, eugene, designer, rook]
+    triggers: [release readiness, production verification, integration completion, regression review]
+
+  competitive-intelligence:
+    path: skills/vendor/competitive-intelligence/SKILL.md
+    trust: approved
+    preferred_agents: [scout, zoie]
+    provenance: {repository: anthropics/knowledge-work-plugins, pinned_blob: c9f441da6f5a09db4d5fc1cbddfa8fba86eeeda8, license: Apache-2.0, review_basis: migrated existing Agent OS adaptation, permitted_agents: [scout, zoie], dependencies: [], risks: [competitive information decays and requires current-source verification]}
+  research-synthesis:
+    path: skills/vendor/research-synthesis/SKILL.md
+    trust: approved
+    preferred_agents: [designer, scout, zoie]
+    provenance: {repository: anthropics/knowledge-work-plugins, pinned_blob: 4807340a6ece564451718200b041a379b1c573a0, license: Apache-2.0, review_basis: migrated existing Agent OS adaptation, permitted_agents: [designer, scout, zoie], dependencies: [], risks: [weak source sets can produce false confidence]}
+  user-research:
+    path: skills/vendor/user-research/SKILL.md
+    trust: approved
+    preferred_agents: [designer, scout]
+    provenance: {repository: anthropics/knowledge-work-plugins, pinned_commit: 4fa3cb92e2942d6594200fa8d2c800708e086072, license: Apache-2.0, review_basis: migrated existing Agent OS adaptation, permitted_agents: [designer, scout], dependencies: [], risks: [small or biased samples must not be treated as market proof]}
+
   root-cause-analysis: {trust: planned, preferred_agents: [w-dog, eugene]}
   change-impact-analysis: {trust: planned, preferred_agents: [w-dog]}
   knowledge-consistency: {trust: planned, preferred_agents: [w-dog]}
   verification-design: {trust: planned, preferred_agents: [w-dog, eugene]}
-
   opportunity-analysis: {trust: planned, preferred_agents: [zoie]}
   market-research: {trust: planned, preferred_agents: [zoie, scout]}
   business-model-analysis: {trust: planned, preferred_agents: [zoie, ledger]}
   experiment-design: {trust: planned, preferred_agents: [zoie, designer, scout]}
-
   dependency-mapping: {trust: planned, preferred_agents: [bill]}
   execution-planning: {trust: planned, preferred_agents: [bill]}
   critical-path-analysis: {trust: planned, preferred_agents: [bill]}
   operational-readiness: {trust: planned, preferred_agents: [bill, w-dog]}
-
   software-architecture: {trust: planned, preferred_agents: [eugene]}
   implementation: {trust: planned, preferred_agents: [eugene]}
   debugging: {trust: planned, preferred_agents: [eugene, w-dog]}
   testing: {trust: planned, preferred_agents: [eugene, w-dog, rook]}
   technical-review: {trust: planned, preferred_agents: [eugene, w-dog]}
-
   objective-design: {trust: planned, preferred_agents: [steward]}
   kpi-design: {trust: planned, preferred_agents: [steward, ledger]}
   portfolio-prioritization: {trust: planned, preferred_agents: [steward, ledger]}
   decision-analysis: {trust: planned, preferred_agents: [steward]}
-
   ux-research: {trust: planned, preferred_agents: [designer, scout]}
   interaction-design: {trust: planned, preferred_agents: [designer]}
   information-architecture: {trust: planned, preferred_agents: [designer]}
   accessibility-review: {trust: planned, preferred_agents: [designer, eugene]}
-
   threat-modeling: {trust: planned, preferred_agents: [rook, eugene]}
   adversarial-testing: {trust: planned, preferred_agents: [rook, eugene]}
   privacy-review: {trust: planned, preferred_agents: [rook]}
   failure-mode-analysis: {trust: planned, preferred_agents: [rook, w-dog]}
-
   customer-research: {trust: planned, preferred_agents: [scout, designer]}
-  competitive-intelligence: {trust: planned, preferred_agents: [scout, zoie]}
   market-monitoring: {trust: planned, preferred_agents: [scout]}
   growth-analysis: {trust: planned, preferred_agents: [scout, zoie, ledger]}
-
   financial-modeling: {trust: planned, preferred_agents: [ledger]}
   unit-economics: {trust: planned, preferred_agents: [ledger, steward]}
   roi-analysis: {trust: planned, preferred_agents: [ledger, steward]}
   forecasting: {trust: planned, preferred_agents: [ledger]}
 
+candidate_plan: registry/vendor-acquisition.yaml
+product_routing: registry/product-routing.yaml
+
 candidate_review:
-  required_checks: [relevance, source-and-repository-provenance, license, instruction-safety, dependency-and-tool-requirements, conflict-with-agent-os-policies, overlap-with-existing-skills, context-cost, expected-quality-gain]
-  approval_record_should_include: [source, repository, pinned_commit_or_version, license, reviewer, approved_date, permitted_agents, known_dependencies, known_risks]
+  required_checks: [relevance, source-and-repository-provenance, license, instruction-safety, dependency-and-tool-requirements, conflict-with-agent-os-policies, overlap-with-existing-skills, context-cost, expected-quality-gain, forward-test]
+  approval_record_should_include: [source, repository, pinned_commit_or_blob, license, reviewer, approved_date, permitted_agents, known_dependencies, known_risks, usefulness_metric]

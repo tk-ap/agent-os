@@ -8,7 +8,10 @@ Portable multi-agent operating system for an autonomous business workforce: Rout
 - `agents/` — stable agent identities and organizational ownership.
 - `registry/agents.yaml` — routing, ownership, and capability domains.
 - `registry/skills.yaml` — approved/planned skill catalog, trust model, provenance, and discovery sources.
+- `registry/product-routing.yaml` — product roles, constraints, default agents, and skill routing.
+- `registry/vendor-acquisition.yaml` — pinned, non-executable candidate acquisition plan.
 - `skills/skill-resolver/SKILL.md` — just-in-time skill selection, acquisition, and external discovery policy.
+- `skills/owned/` — ecosystem-specific procedures maintained by Agent OS.
 - `skills/vendor/` — reviewed third-party skills adapted/pinned for Agent OS runtime.
 - `policies/AUTONOMY_POLICY.md` — autonomous action, control-check, and human-escalation rules.
 - `policies/HANDOFF_POLICY.md` — ownership transitions and multi-agent council behavior.
