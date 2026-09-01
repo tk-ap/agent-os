@@ -1,0 +1,73 @@
+version: 0.2.0
+
+principles:
+  agent_os_workforce: shared execution infrastructure; not a separate public offering
+  shared_growth: Growth / Marketing Engineering is a workforce capability; not a standalone product
+  authority: context and intelligence may propose work but do not grant execution authority
+  evidence: implemented, simulated, preview, deployed, and user-validated states must remain distinct
+
+shared_capabilities:
+  growth:
+    public_product: false
+    accountable_agent: scout
+    operating_profile: agents/scout/MARKET_TRUTH_PROFILE.md
+    primary_skill: market-truth-growth-intelligence
+    supporting_agents: [zoie, steward, ledger, designer, rook, router, eugene, w-dog]
+    first_pilot: ailhat
+    loop: [context, external-signal, portfolio-mapping, interpretation, bounded-experiment, governed-execution, evaluation, learning]
+    ownership_boundaries:
+      alvira-meos: supplies durable customer, company, and contextual truth when relevant
+      ailhat: interprets portfolio and market signals and proposes Opportunity, Risk, Drift, or Work
+      agent-control: owns authorization intelligence for governed actions where integrated
+      agent-os-workforce: executes approved research, experiments, content, outreach, and technical work through specialist agents
+      ashwood: selectively documents validated decisions and learning as public evidence
+      ledgato: participates only when the action intersects its defined governance or enforcement scope
+    constraints: [growth findings do not authorize action, optimize for business learning not agent activity, use one bounded experiment at a time when possible, preserve source and evidence provenance]
+
+products:
+  alvira-meos:
+    plane: context
+    role: context intelligence, capture, reflection, and portability
+    primary_agents: [designer, eugene, w-dog, rook]
+    default_skills: [context-provenance, ecosystem-contracts, end-to-end-verification]
+    constraints: [shared interview engine does not imply one mega-interview, context is not authorization, growth agents may consume relevant context but do not turn ALVIRA into a marketing product]
+  alvira-bridge:
+    plane: context
+    role: gated secondary ALVIRA capability
+    primary_agents: [eugene, designer, rook]
+    default_skills: [ecosystem-contracts, context-provenance, authorization-policy]
+    constraints: [not a standalone public offering, unlock only under product-defined completion and account rules]
+  ailhat:
+    plane: intelligence
+    role: host-agnostic portfolio intelligence and product signal
+    primary_agents: [scout, zoie, steward, router, w-dog]
+    default_skills: [market-truth-growth-intelligence, competitive-intelligence, research-synthesis, task-envelope, audit-evidence-ledger]
+    growth_pilot: true
+    growth_output: [SIGNAL, EVIDENCE, PORTFOLIO_RELEVANCE, INTERPRETATION, RECOMMENDED_EXPERIMENT, SUCCESS_SIGNAL, LEARNING]
+    constraints: [signals propose work, simulated findings must be labeled, recommendations require evidence, market language should be discovered rather than assumed, portfolio attention decisions remain governed]
+  agent-control:
+    plane: governance
+    role: authorization intelligence
+    primary_agents: [rook, eugene, w-dog]
+    default_skills: [authorization-policy, audit-evidence-ledger, end-to-end-verification]
+    constraints: [do not absorb capacity allocation or product-state UI outside its defined scope, growth intelligence may request authorization but cannot grant it]
+  ledgato:
+    plane: governance
+    role: governance and enforcement concept
+    primary_agents: [rook, eugene, zoie, w-dog]
+    default_skills: [authorization-policy, ecosystem-contracts, end-to-end-verification]
+    constraints: [production runtime and buyer proof remain unresolved, do not overclaim enforcement, do not route generic growth work here unless governance or enforcement is materially involved]
+  ashwood:
+    plane: evidence
+    role: public creative portfolio and founder build archive
+    primary_agents: [designer, scout, w-dog, steward]
+    default_skills: [audit-evidence-ledger, research-synthesis, end-to-end-verification]
+    constraints: [creative Portfolio and SaaS Build Journal remain distinct, public narrative is curated from evidence, validated growth learning may be documented selectively without exposing proprietary operating machinery]
+
+environments:
+  cto-new: {adapter: adapters/cto-new, mode: generalized harness execution}
+  codex: {adapter_status: planned, mode: generalized harness execution}
+  github: {adapter_status: planned, mode: source control, review, and workflow evidence}
+  vercel: {adapter_status: planned, mode: preview and production deployment}
+  github-pages: {adapter_status: planned, mode: static production deployment}
+  agentmail: {adapter_status: planned, mode: governed agent communications}
