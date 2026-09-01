@@ -1,4 +1,4 @@
-version: 0.4.0
+version: 0.5.0
 
 policy:
   selection: minimum-sufficient-set
@@ -20,6 +20,7 @@ trust_levels:
 external_sources:
   - {name: agentic-awesome-skills, repository: sickn33/agentic-awesome-skills, mode: discovery-and-pin, trust: candidate}
   - {name: vercel-agent-skills, repository: vercel-labs/agent-skills, mode: discovery-and-pin, trust: candidate}
+  - {name: agentmail-skills, repository: agentmail-to/agentmail-skills, mode: portable-vendor-source-and-pin, trust: candidate}
   - {name: github, url: https://github.com/, mode: discovery-and-pin, trust: candidate}
 
 supply_chain:
@@ -86,6 +87,45 @@ skills:
     trust: approved
     preferred_agents: [designer, scout]
     provenance: {repository: anthropics/knowledge-work-plugins, pinned_commit: 4fa3cb92e2942d6594200fa8d2c800708e086072, license: Apache-2.0, review_basis: migrated existing Agent OS adaptation, permitted_agents: [designer, scout], dependencies: [], risks: [small or biased samples must not be treated as market proof]}
+
+  # AgentMail is capability supply, not an agent identity. These first-party skills
+  # remain candidates until license verification, local acquisition/reference setup,
+  # and a forward test satisfy the normal Agent OS approval policy.
+  agent-email-patterns:
+    trust: candidate
+    source: agentmail-skills
+    upstream_path: agent-email-patterns/SKILL.md
+    preferred_agents: [eugene, rook, bill]
+    triggers: [agent email architecture, dedicated agent inbox design, email threat model, webhook design, websocket design, multi-agent email topology]
+    provenance: {repository: agentmail-to/agentmail-skills, pinned_commit: e0db938ca1dfd9f7525e08c0264c019707e034e2, pinned_blob: 479909f3875732e193602c49d8c0e9405d18ba12, license: unresolved, review_basis: first-party canonical AgentMail architecture and security skill reviewed for selective acquisition, permitted_agents: [eugene, rook, bill], dependencies: [references/threat-model.md, references/topologies.md], risks: [provider-specific assumptions, inbound email is untrusted content, external guidance must not override Agent OS authorization policy]}
+  agentmail-check-email:
+    trust: candidate
+    source: agentmail-skills
+    upstream_path: agentmail-check-email/SKILL.md
+    preferred_agents: [scout, bill, steward]
+    triggers: [check AgentMail, read inbox, search inbox, summarize email, triage email, find messages needing reply]
+    provenance: {repository: agentmail-to/agentmail-skills, pinned_commit: e0db938ca1dfd9f7525e08c0264c019707e034e2, pinned_blob: cd3860cd38ec0315a811f6fb1e5223b12611b820, license: unresolved, review_basis: first-party read and triage workflow reviewed; preserves untrusted-content boundary and pagination requirements, permitted_agents: [scout, bill, steward], dependencies: [AgentMail MCP connection, agent-email-patterns], risks: [mailbox privacy, prompt injection from email content, preview-only search results, incomplete pagination]}
+  agentmail-send-email:
+    trust: candidate
+    source: agentmail-skills
+    upstream_path: agentmail-send-email/SKILL.md
+    preferred_agents: [bill, scout, steward]
+    triggers: [draft AgentMail email, send AgentMail email, reply to email, forward email, schedule email draft]
+    provenance: {repository: agentmail-to/agentmail-skills, pinned_commit: e0db938ca1dfd9f7525e08c0264c019707e034e2, pinned_blob: 5ff7505666f9af099d09f4cb2c626161f3fd7c96, license: unresolved, review_basis: first-party send workflow reviewed; explicit visible-field authorization and ambiguous-send reconciliation align with Agent OS policy, permitted_agents: [bill, scout, steward], dependencies: [AgentMail MCP connection, agent-email-patterns, authorization-policy, audit-evidence-ledger], risks: [external side effects, recipient or sender mis-resolution, duplicate sends after ambiguous timeout, sensitive or bulk communication]}
+  agentmail-manage-inboxes:
+    trust: candidate
+    source: agentmail-skills
+    upstream_path: agentmail-manage-inboxes/SKILL.md
+    preferred_agents: [bill, eugene, rook]
+    triggers: [list AgentMail inboxes, create agent inbox, inspect inbox, update inbox, delete inbox, mailbox lifecycle]
+    provenance: {repository: agentmail-to/agentmail-skills, pinned_commit: e0db938ca1dfd9f7525e08c0264c019707e034e2, pinned_blob: cfa4cedb723da30357b2ff054be31723d7926e8e, license: unresolved, review_basis: first-party inbox lifecycle workflow reviewed; destructive deletion requires exact-object confirmation, permitted_agents: [bill, eugene, rook], dependencies: [AgentMail MCP connection, agent-email-patterns, authorization-policy], risks: [destructive inbox deletion, domain or credential scope expansion, mailbox data exposure]}
+  agentmail:
+    trust: candidate
+    source: agentmail-skills
+    upstream_path: agentmail/SKILL.md
+    preferred_agents: [eugene, rook]
+    triggers: [AgentMail SDK implementation, AgentMail API integration, AgentMail webhook, AgentMail websocket, AgentMail deliverability, AgentMail code review]
+    provenance: {repository: agentmail-to/agentmail-skills, pinned_commit: e0db938ca1dfd9f7525e08c0264c019707e034e2, pinned_blob: e47f289af9892b3668d35b320aba85e7a5d7bb4b, license: unresolved, review_basis: first-party SDK skill reviewed as implementation fallback when direct AgentMail tools are unavailable, permitted_agents: [eugene, rook], dependencies: [AGENTMAIL_API_KEY, AgentMail TypeScript or Python SDK], risks: [credential handling, external mutation, destructive API-key rotation on repeated agent signup, provider API drift]}
 
   root-cause-analysis: {trust: planned, preferred_agents: [w-dog, eugene]}
   change-impact-analysis: {trust: planned, preferred_agents: [w-dog]}
