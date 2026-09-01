@@ -34,6 +34,7 @@ This keeps organizational roles and product truth stable while models, tools, ho
 ## Repository Structure
 
 - `BOOTSTRAP.md` — universal workspace entry point, task-first load order, product-boundary check, and adapter detection.
+- `HOST_PROFILES.md` — optional host-profile rules and the Omarchy workstation hypothesis; host profiles remain subordinate to the control-plane charter.
 - `agents/` — stable agent identities and organizational ownership.
 - `registry/agents.yaml` — routing, ownership, and capability domains.
 - `registry/skills.yaml` — owned/approved/planned skill catalog, trust model, provenance, reviewed reference material, and discovery sources.
@@ -79,6 +80,12 @@ The control plane progressively makes these concepts explicit and machine-readab
 
 Agents and skills are registries **inside** Agent OS; they are not the definition of Agent OS itself.
 
+## Host Profiles
+
+Host profiles describe optional workstation/runtime-environment conventions without becoming control-plane dependencies. `HOST_PROFILES.md` defines the host-versus-target boundary and the first candidate profile: **Omarchy as an optional Linux workstation host**.
+
+A host profile may improve local tooling, sessions, browser/editor/terminal ergonomics, and human supervision. It may not grant production authority, store secrets in Agent OS, weaken provider protections, or redefine product/workforce ownership. Host-specific implementation belongs in an adapter/profile layer and must remain reversible.
+
 ## Product Repository Adapter
 
 `adapters/product-repo/` contains lightweight templates for repositories that participate in Agent OS routing. They supplement the canonical product registry rather than replacing it.
@@ -107,4 +114,4 @@ ailhat is the first internal pilot. ALVIRA / MeOS supplies relevant durable cont
 
 **Task is primary. Identity is stable. Capability is composable. Product boundaries are explicit. Context is least-privilege. Authority is explicit. Execution is host-agnostic. Evidence closes the loop.**
 
-Use the minimum sufficient team and minimum sufficient skill set. Prefer an existing owner plus a reusable skill over unnecessary persistent-agent proliferation. Repeated work requires bounded routine controls; producer/inspector loops require termination and escalation. Adapters translate the operating model into each execution environment without changing organizational/product ownership or widening authority.
+Use the minimum sufficient team and minimum sufficient skill set. Prefer an existing owner plus a reusable skill over unnecessary persistent-agent proliferation. Repeated work requires bounded routine controls; producer/inspector loops require termination and escalation. Adapters and host profiles translate the operating model into execution environments without changing organizational/product ownership or widening authority.
