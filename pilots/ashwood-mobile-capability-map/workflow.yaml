@@ -1,0 +1,51 @@
+api_version: agent-os/v0alpha1
+kind: Workflow
+metadata:
+  id: ashwood-reference-bug-fix
+spec:
+  task_types:
+    - bug-fix
+  stages:
+    - id: resolve
+      intent: Resolve product, context, responsible agent, minimum skills, harness, and host.
+      gate: none
+      required_evidence:
+        - resolution-record
+    - id: authorize
+      intent: Confirm the requested mutation is within delegated branch and pull-request scope.
+      gate: authorization
+      required_evidence:
+        - authorization-reference
+    - id: branch
+      intent: Create a reversible product branch from current main.
+      gate: none
+      required_evidence:
+        - branch-reference
+    - id: implement
+      intent: Apply the smallest product change that addresses the traced root cause.
+      gate: none
+      required_evidence:
+        - commit-reference
+        - scoped-diff
+    - id: preview
+      intent: Confirm the branch produces a reachable non-production preview.
+      gate: none
+      required_evidence:
+        - preview-deployment
+        - preview-http-response
+    - id: verify
+      intent: Separate source-level and deployment verification from unresolved visual-browser verification.
+      gate: none
+      required_evidence:
+        - root-cause-check
+        - mobile-visual-check-status
+    - id: review
+      intent: Open a draft pull request and return evidence without merging or promoting production.
+      gate: human-approval
+      required_evidence:
+        - pull-request-reference
+        - unresolved-human-gates
+  completion:
+    required_states:
+      - previewed
+    unresolved_gates_allowed: true
