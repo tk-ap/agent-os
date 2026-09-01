@@ -1,0 +1,47 @@
+api_version: agent-os/v0alpha1
+kind: Evidence
+metadata:
+  id: ashwood-mobile-capability-map-layout-run-001
+spec:
+  task: ashwood-mobile-capability-map-layout
+  product: ashwood
+  host: chatgpt-cloud-session
+  harness: chatgpt-connected-tools
+  state: previewed
+  changes:
+    - hotspot-immersive.css adds mobile-only hidden-map layout collapse
+    - capability map spans both hotspot-grid columns only when active
+    - hidden hotspot rows stop reserving layout space while the map is active
+  verification:
+    - check: root-cause-trace
+      result: passed
+      evidence_ref: capability-entry.js mounts map into principles-field; curiosity.js makes hidden map relative on mobile
+    - check: product-branch-scope
+      result: passed
+      evidence_ref: compare:main...fix/mobile-capability-map-layout; one file; 20 additions; 0 deletions
+    - check: preview-deployment
+      result: passed
+      evidence_ref: vercel:dpl_EKHe4kyhypL2PN9NSu7s4La2i4uc:READY
+    - check: preview-home-http
+      result: passed
+      evidence_ref: https://ashwood-o3kze3qtt-alvira2.vercel.app/:200
+    - check: mobile-visual-browser
+      result: unknown
+      evidence_ref: selected host has no visual mobile-browser capability; required before merge confidence
+  artifacts:
+    - type: branch
+      ref: tk-ap/tk-ap.github.io:fix/mobile-capability-map-layout
+    - type: commit
+      ref: 6e88f83ddbf6335cd14d49373ea933ec75c0a907
+    - type: pull-request
+      ref: https://github.com/tk-ap/tk-ap.github.io/pull/14
+    - type: preview
+      ref: https://ashwood-o3kze3qtt-alvira2.vercel.app/
+  gates:
+    - gate: merge
+      state: requires-human
+    - gate: production
+      state: requires-human
+  notes:
+    - Preview readiness is not treated as visual mobile verification.
+    - No merge or production promotion occurred in this pilot.
