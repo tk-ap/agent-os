@@ -1,0 +1,18 @@
+api_version: agent-os/v0alpha1
+kind: Host
+metadata:
+  id: chatgpt-cloud-session
+spec:
+  class: cloud-runtime
+  ownership: provider
+  persistence: ephemeral
+  network: networked
+  capabilities:
+    - git
+    - network
+  secret_boundary: scoped
+  constraints:
+    - repository mutations occur only through connected scoped tools
+    - GitHub is the source-control target and Vercel is the preview target
+    - this host does not provide the mobile visual-browser verification required for merge confidence
+  authority_boundary: policy-controlled
