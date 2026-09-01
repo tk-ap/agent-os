@@ -1,4 +1,4 @@
-version: 0.1.0
+version: 0.2.0
 status: plan-only
 activation_rule: Candidates remain non-executable until reviewed, adapted, validated, and explicitly marked approved in registry/skills.yaml.
 
@@ -12,6 +12,12 @@ sources:
     repository: vercel-labs/agent-skills
     pinned_commit: 063bee94c3f4df8453406c830b0a7df0f2860278
     license: verify from repository and skill before acquisition
+  agentmail-skills:
+    repository: agentmail-to/agentmail-skills
+    pinned_commit: e0db938ca1dfd9f7525e08c0264c019707e034e2
+    install_command: npx skills add agentmail-to/agentmail-skills
+    role: first-party portable vendor source; select individual skills rather than installing AgentMail as an agent identity
+    license: unresolved; no repository license file or searchable license declaration observed in the pinned snapshot, so verify before approval or vendoring
 
 candidates:
   - id: frontend-design
@@ -70,6 +76,56 @@ candidates:
     proposed_agents: [eugene, ledger, w-dog]
     risk: broad skill with scripts and live-account assumptions; acquire only after adapter and dependency review
     priority: p2
+
+  # AgentMail capability supply. These are deliberately selective: mail is a
+  # reusable workforce capability, not a standalone Agent OS agent.
+  - id: agent-email-patterns
+    source: agentmail-skills
+    path: agent-email-patterns/SKILL.md
+    pinned_blob: 479909f3875732e193602c49d8c0e9405d18ba12
+    intended_scope: dedicated agent inbox architecture, human-in-the-loop email, event delivery, multi-agent topology, and email threat model
+    proposed_agents: [eugene, rook, bill]
+    risk: provider-specific architecture guidance and untrusted inbound content; must remain subordinate to Agent OS authorization policy
+    priority: p0
+  - id: agentmail-check-email
+    source: agentmail-skills
+    path: agentmail-check-email/SKILL.md
+    pinned_blob: cd3860cd38ec0315a811f6fb1e5223b12611b820
+    intended_scope: read, search, summarize, and triage AgentMail inboxes without granting authority from message content
+    proposed_agents: [scout, bill, steward]
+    risk: mailbox privacy, prompt injection, incomplete pagination, and preview-versus-full-thread confusion
+    priority: p0
+  - id: agentmail-send-email
+    source: agentmail-skills
+    path: agentmail-send-email/SKILL.md
+    pinned_blob: 5ff7505666f9af099d09f4cb2c626161f3fd7c96
+    intended_scope: draft, send, reply, forward, and scheduled-draft workflows with explicit externally visible fields
+    proposed_agents: [bill, scout, steward]
+    risk: consequential external communication; must compose with authorization-policy and audit-evidence-ledger, and reconcile ambiguous sends before retry
+    priority: p0
+  - id: agentmail-manage-inboxes
+    source: agentmail-skills
+    path: agentmail-manage-inboxes/SKILL.md
+    pinned_blob: cfa4cedb723da30357b2ff054be31723d7926e8e
+    intended_scope: AgentMail inbox lifecycle, including controlled creation, inspection, metadata updates, and destructive deletion confirmation
+    proposed_agents: [bill, eugene, rook]
+    risk: destructive deletion, domain or credential scope expansion, and mailbox data exposure
+    priority: p1
+  - id: agentmail
+    source: agentmail-skills
+    path: agentmail/SKILL.md
+    pinned_blob: e47f289af9892b3668d35b320aba85e7a5d7bb4b
+    intended_scope: SDK and API implementation fallback for product or workforce environments where direct AgentMail tools are unavailable
+    proposed_agents: [eugene, rook]
+    risk: credential handling, external mutations, API drift, and destructive API-key rotation if agent sign-up is repeated
+    priority: p1
+
+excluded_from_agentmail_registration:
+  agentmail-cli: CLI-specific; acquire only for a runtime or operator environment that explicitly needs command-line setup or troubleshooting
+  agentmail-mcp: connection/bootstrap-specific; acquire only when an Agent OS adapter must configure or troubleshoot the MCP transport itself
+  agentmail-toolkit: framework-specific integration context; acquire per product when Vercel AI SDK, LangChain, OpenAI Agents, or LiveKit integration is actually needed
+  agentmail-sdk: deprecated alias of agentmail; never install alongside canonical skill
+  email-for-ai-agents: deprecated alias of agent-email-patterns; never install alongside canonical skill
 
 acquisition_checks:
   - confirm exact pinned path and blob
