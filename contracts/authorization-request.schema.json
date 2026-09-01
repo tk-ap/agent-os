@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-os.local/contracts/authorization-request.schema.json",
+  "title": "Agent Control Authorization Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_id",
+    "work_id",
+    "authorization_owner",
+    "requester",
+    "actions",
+    "resources",
+    "constraints",
+    "requested_at"
+  ],
+  "properties": {
+    "request_id": {"type": "string", "minLength": 1},
+    "work_id": {"type": "string", "minLength": 1},
+    "authorization_owner": {"const": "agent-control"},
+    "requester": {
+      "type": "object",
+      "required": ["agent", "identity"],
+      "properties": {
+        "agent": {"type": "string", "minLength": 1},
+        "identity": {"type": "string", "minLength": 1},
+        "product": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "actions": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "resources": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "data_classes": {"type": "array", "items": {"type": "string"}},
+    "network_destinations": {"type": "array", "items": {"type": "string"}},
+    "constraints": {"type": "object"},
+    "approval_context": {"type": "object"},
+    "governance_enforcement_context": {"type": "object"},
+    "requested_at": {"type": "string", "format": "date-time"}
+  }
+}

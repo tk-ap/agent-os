@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-os.local/contracts/context-envelope.schema.json",
+  "title": "ALVIRA Context Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "envelope_id",
+    "source_product",
+    "context_origin",
+    "consumer",
+    "purpose",
+    "references",
+    "permissions",
+    "provenance",
+    "issued_at"
+  ],
+  "properties": {
+    "envelope_id": {"type": "string", "minLength": 1},
+    "source_product": {"const": "alvira-meos"},
+    "context_origin": {"const": "alvira-context"},
+    "transport": {"enum": ["alvira-bridge", "workspace-native", "other"]},
+    "consumer": {
+      "type": "object",
+      "required": ["product", "agent_or_workforce"],
+      "properties": {
+        "product": {"type": "string", "minLength": 1},
+        "agent_or_workforce": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "purpose": {"type": "string", "minLength": 1},
+    "work_id": {"type": "string"},
+    "references": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "permissions": {
+      "type": "object",
+      "required": ["read"],
+      "properties": {
+        "read": {"const": true},
+        "redistribute": {"type": "boolean", "default": false},
+        "persist": {"type": "boolean", "default": false}
+      },
+      "additionalProperties": false
+    },
+    "provenance": {"type": "array", "items": {"type": "object"}, "minItems": 1},
+    "issued_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "revocation_reference": {"type": "string"}
+  }
+}

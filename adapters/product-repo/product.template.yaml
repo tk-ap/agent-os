@@ -1,0 +1,17 @@
+version: 0.1.0
+product_key: replace-me
+routing_source: registry/product-routing.yaml
+repository: owner/repo
+
+local:
+  owns: []
+  produces: []
+  consumes: []
+  must_not_own: []
+  constraints: []
+
+rules:
+  canonical_product_role_from_routing_source: true
+  local_metadata_may_narrow_or_add_implementation_detail: true
+  local_metadata_must_not_redefine_canonical_role: true
+  cross_product_writes_require_explicit_task_authorization: true

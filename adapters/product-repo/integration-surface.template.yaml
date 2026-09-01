@@ -1,0 +1,12 @@
+version: 0.1.0
+product_key: replace-me
+routing_source: registry/product-routing.yaml
+
+inbound: []
+outbound: []
+cross_market: []
+
+rules:
+  use_portable_contracts_for_cross_product_handoffs: true
+  cross_market_policy: policies/CROSS_MARKET_POLICY.md
+  integration_claims_require_verified_implementation: true
