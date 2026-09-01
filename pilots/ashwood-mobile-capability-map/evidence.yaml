@@ -1,0 +1,81 @@
+api_version: agent-os/v0alpha1
+kind: Evidence
+metadata:
+  id: ashwood-mobile-capability-map-layout-run-001
+spec:
+  task: ashwood-mobile-capability-map-layout
+  product: ashwood
+  host: chatgpt-cloud-session
+  harness: chatgpt-connected-tools
+  state: previewed
+  changes:
+    - first pass attempted to hide only the capability map mounted as a direct child of principles-field
+    - user validation falsified that assumption: blank gap and blurred inactive map remained
+    - second pass removed inactive mobile capability-map layout/compositing and reduced hotspot density
+    - second human validation showed meaningful improvement but exposed active-map geometry and missing mobile Doctor Bird
+    - third pass allowed the active map to grow beyond 100dvh and made Doctor Bird visible as a static touch companion
+    - user design review then rejected the mobile hotspot hunt itself as unnecessary interaction overhead and rejected the static bird treatment as insufficiently bird-like
+    - fourth pass retired the hotspot offering on mobile and attempted a native capability chapter plus animated SVG Doctor Bird
+    - fourth human validation found two regressions: the capability chapter was absent and the replacement vector materially degraded the established Doctor Bird imagery
+    - fifth pass makes the mobile capability chapter self-contained from the six canonical capability definitions so it no longer depends on the desktop curiosity runtime constructing the DOM
+    - fifth pass restores the exact prior rendered Doctor Bird asset as a Git blob rather than recreating it
+    - fifth pass adds a separate mobile motion controller that preserves the rendered asset, adds hover/body movement and rendered-image wing-motion traces, and moves Doc between guide waypoints
+  verification:
+    - check: root-cause-trace
+      result: passed
+      evidence_ref: mobile architecture must not depend on hidden desktop discovery state or fixed-height capability surfaces
+    - check: product-branch-scope
+      result: passed
+      evidence_ref: tk-ap/tk-ap.github.io:fix/mobile-capability-map-layout remains isolated to homepage mobile capability/discovery and Doctor Bird presentation
+    - check: first-preview-mobile-visual
+      result: failed
+      evidence_ref: user validation 2026-09-01 — giant blank gap remained; hotspots crowded; blurred inactive map visible; static links usable
+    - check: second-preview-mobile-visual
+      result: failed
+      evidence_ref: user validation 2026-09-01 at 393x852 — expanded capability map overlapped Modeling/Music/Builds/Connect; Doctor Bird not visible
+    - check: third-preview-doc-motion
+      result: failed
+      evidence_ref: user validation 2026-09-01 — Doctor Bird appeared but remained static/stationary in the top-right while stepping through guide tiles
+    - check: mobile-architecture-decision
+      result: passed
+      evidence_ref: user approved retiring the mobile hotspot/tap-here offering and integrating capabilities directly into the mobile homepage
+    - check: fourth-preview-deployment
+      result: passed
+      evidence_ref: vercel:dpl_CnAruqri9GsZCpy8EC9hHtfuxSUu:READY
+    - check: fourth-preview-mobile-visual
+      result: failed
+      evidence_ref: user validation 2026-09-01 — Doctor Bird imagery degraded to a simplified vector and no capability map/chapter was visible
+    - check: fifth-preview-deployment
+      result: passed
+      evidence_ref: vercel:dpl_25mEvyToVAfMGvzXXe39n1fQcvtJ:READY
+    - check: fifth-preview-mobile-visual
+      result: unknown
+      evidence_ref: awaiting human validation that the capability chapter is visible, rendered Doctor Bird quality is restored, and mobile hover/flight reads naturally
+  artifacts:
+    - type: branch
+      ref: tk-ap/tk-ap.github.io:fix/mobile-capability-map-layout
+    - type: commit
+      ref: 7655b722b5a4a49c2a395cdfadab9d6134b2df36
+    - type: commit
+      ref: 5dbe41dfbe137187d0f4ed4b8b16eda61e546d44
+    - type: commit
+      ref: 01021c3bf96e6270c44371ca20144389ed799c4f
+    - type: commit
+      ref: 9907021f0725d2d18e6a670967f49e2e4c80dc5a
+    - type: pull-request
+      ref: https://github.com/tk-ap/tk-ap.github.io/pull/14
+    - type: preview
+      ref: https://ashwood-eu95rhiip-alvira2.vercel.app/
+    - type: preview
+      ref: https://ashwood-nkyv4aypl-alvira2.vercel.app/
+  gates:
+    - gate: merge
+      state: requires-human
+    - gate: production
+      state: requires-human
+  notes:
+    - Preview readiness is not treated as visual mobile verification.
+    - Failed visual verification cycles remain durable evidence rather than being overwritten.
+    - The mobile capability chapter is now intentionally independent of the desktop hotspot discovery engine.
+    - Doctor Bird visual fidelity is treated as a product constraint: motion may augment the rendered asset but must not replace it with lower-fidelity artwork.
+    - No merge or production promotion occurred in this pilot.

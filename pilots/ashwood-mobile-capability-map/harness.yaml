@@ -1,0 +1,19 @@
+api_version: agent-os/v0alpha1
+kind: Harness
+metadata:
+  id: chatgpt-connected-tools
+  provider: OpenAI
+spec:
+  mode: workspace-service
+  capabilities:
+    - git
+    - network
+  compatible_hosts:
+    - chatgpt-cloud-session
+  credential_classes:
+    - connected-app-authorization
+  constraints:
+    - no local shell was used for this pilot
+    - no visual browser capability was available in the selected execution path
+    - capability does not authorize merge or production
+  authority_boundary: policy-controlled

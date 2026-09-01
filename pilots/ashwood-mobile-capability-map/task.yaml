@@ -1,0 +1,34 @@
+api_version: agent-os/v0alpha1
+kind: Task
+metadata:
+  id: ashwood-mobile-capability-map-layout
+  source: human-owner
+spec:
+  type: bug-fix
+  outcome: >-
+    Remove the long blank mobile gap caused by the hidden capability map while
+    preserving the six-hotspot discovery flow and static homepage access.
+  product: ashwood
+  constraints:
+    - limit mutation to the mobile capability and hotspot layout defect
+    - preserve the canonical six-hotspot discovery model
+    - preserve direct capability-map open and close behavior
+    - preserve static homepage routes and tap targets
+    - stop at a draft pull request
+  context_refs:
+    - tk-ap/tk-ap.github.io:ASHWOOD_V2_HOTSPOT_RECONCILIATION.md
+    - tk-ap/tk-ap.github.io:index.html
+    - tk-ap/tk-ap.github.io:hotspot-immersive.css
+    - tk-ap/tk-ap.github.io:curiosity.js
+    - tk-ap/tk-ap.github.io:capability-entry.js
+    - registry/product-routing.yaml#products.ashwood
+    - policies/AUTONOMY_POLICY.md
+  human_gates:
+    - merge
+    - production
+  authorization:
+    state: authorized
+    policy_refs:
+      - policies/AUTONOMY_POLICY.md
+      - registry/product-routing.yaml
+    authority_ref: human-owner:phase-2-request
