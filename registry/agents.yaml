@@ -1,4 +1,4 @@
-version: 0.2.0
+version: 0.3.0
 team: agent-os
 
 routing:
@@ -74,9 +74,10 @@ agents:
     name: Scout
     role: Chief Growth & Intelligence Officer
     identity: agents/scout/IDENTITY.md
-    owns: [customer-intelligence, competitor-monitoring, distribution-intelligence, sales-signals, support-signals, pricing-evidence, market-monitoring, partnerships]
-    core_skills: [customer-research, competitive-intelligence, market-monitoring, growth-analysis]
-    discover_domains: [sales, marketing, seo, distribution, partnerships, pricing, research]
+    operating_profiles: [agents/scout/MARKET_TRUTH_PROFILE.md]
+    owns: [customer-intelligence, competitor-monitoring, distribution-intelligence, sales-signals, support-signals, pricing-evidence, positioning-evidence, demand-discovery, market-monitoring, growth-experiment-intelligence, partnerships]
+    core_skills: [market-truth-growth-intelligence, customer-research, competitive-intelligence, market-monitoring, growth-analysis]
+    discover_domains: [sales, marketing, seo, ai-discovery, distribution, partnerships, pricing, research, growth-experimentation]
     max_active_skills: 7
 
   ledger:
