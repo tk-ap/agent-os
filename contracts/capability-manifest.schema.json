@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-os.local/contracts/capability-manifest.schema.json",
+  "title": "Workforce Capability Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_id",
+    "work_id",
+    "routing_source",
+    "owning_product",
+    "agents",
+    "skills",
+    "tools",
+    "harness_candidates",
+    "generated_at"
+  ],
+  "properties": {
+    "manifest_id": {"type": "string", "minLength": 1},
+    "work_id": {"type": "string", "minLength": 1},
+    "routing_source": {"const": "registry/product-routing.yaml"},
+    "owning_product": {"type": "string", "minLength": 1},
+    "agents": {"type": "array", "items": {"type": "string"}, "minItems": 1, "uniqueItems": true},
+    "skills": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "tools": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "resources": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "harness_candidates": {"type": "array", "items": {"type": "string"}, "minItems": 1, "uniqueItems": true},
+    "selected_harness": {"type": "string"},
+    "dependencies": {"type": "array", "items": {"type": "string"}},
+    "estimated_cost": {"type": "object"},
+    "human_oversight": {"type": "object"},
+    "authorization_required": {"type": "boolean"},
+    "context_required": {"type": "boolean"},
+    "generated_at": {"type": "string", "format": "date-time"}
+  }
+}

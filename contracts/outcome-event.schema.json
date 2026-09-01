@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-os.local/contracts/outcome-event.schema.json",
+  "title": "Execution Outcome Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "work_id",
+    "status",
+    "harness",
+    "artifacts",
+    "verification",
+    "occurred_at"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 1},
+    "work_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["completed", "partially-completed", "blocked", "failed", "cancelled"]},
+    "harness": {"type": "string", "minLength": 1},
+    "artifacts": {"type": "array", "items": {"type": "object"}},
+    "verification": {"type": "object"},
+    "authority_evidence": {"type": "object"},
+    "governance_enforcement_evidence": {"type": "object"},
+    "measured_outcome": {"type": "object"},
+    "portfolio_relevance": {"type": "object"},
+    "cost": {"type": "object"},
+    "evidence_destination": {"type": "string"},
+    "occurred_at": {"type": "string", "format": "date-time"}
+  }
+}

@@ -1,5 +1,12 @@
-version: 0.1.0
+version: 0.2.0
 adapter: cto-new
+harness_class: generalized-agentic-execution
+
+canonical_sources:
+  product_routing: registry/product-routing.yaml
+  agent_routing: registry/agents.yaml
+  skills: registry/skills.yaml
+  handoffs: policies/HANDOFF_POLICY.md
 
 repositories:
   product:
@@ -11,11 +18,12 @@ repositories:
     role: operating-layer
     preferred_access: read-only
     may_modify: false
-    authority: workforce-policy-and-capability
+    authority: workforce-policy-product-routing-and-capability
 
 precedence:
   - platform-and-system-rules
   - product-repository-instructions
+  - agent-os-product-routing
   - agent-os-policies
   - selected-agent-identity
   - selected-approved-skills
@@ -26,8 +34,29 @@ execution:
   single_runner_supported: true
   load_all_agents: false
   load_all_skills: false
+  require_product_boundary_check: true
   require_verification: true
+  return_outcome_evidence_when_material: true
   default_delivery: product-repository-change
+
+portable_contracts:
+  work_item: contracts/work-item.schema.json
+  capability_manifest: contracts/capability-manifest.schema.json
+  context_envelope: contracts/context-envelope.schema.json
+  authorization_request: contracts/authorization-request.schema.json
+  outcome_event: contracts/outcome-event.schema.json
+
+ownership:
+  context_intelligence: alvira-meos
+  authorization_intelligence: agent-control
+  shared_workforce_execution: agent-os-workforce
+  portfolio_intelligence: ailhat
+  governance_enforcement_when_relevant: ledgato
+
+cross_product_write_policy:
+  default: propose-handoff
+  direct_write_requires: explicit-task-authorization
+  preserve_destination_repo_instructions: true
 
 agent_os_write_policy:
   default: deny
