@@ -1,0 +1,62 @@
+version: 0.2.0
+status: v0alpha1
+mode: declarative-non-executable
+
+contract_layers:
+  portable_interoperability:
+    location: contracts/
+    purpose: carry intent context authorization capability requirements and outcome across product/workspace boundaries
+    contracts: [work-item, capability-manifest, context-envelope, authorization-request, outcome-event]
+  control_plane_execution:
+    location: contracts/v0/
+    purpose: describe governed execution instance workflow executor host and evidence
+    relationship: portable work-item may propose or hand off work into a governed task; v0 objects reference portable contracts rather than duplicating them
+
+contracts:
+  task:
+    schema: contracts/v0/task.schema.yaml
+    purpose: governed execution instance; may reference a portable work-item and never authorizes itself
+  workflow:
+    schema: contracts/v0/workflow.schema.yaml
+    purpose: repeatable task-class stages gates and evidence expectations
+  harness:
+    schema: contracts/v0/harness.schema.yaml
+    purpose: agentic executor capability and trust-boundary description
+  host:
+    schema: contracts/v0/host.schema.yaml
+    purpose: execution-location capability and ownership description; optional host profiles remain subordinate
+  evidence:
+    schema: contracts/v0/evidence.schema.yaml
+    purpose: structured execution truth and unresolved gates
+
+canonical_sources:
+  product_routing: registry/product-routing.yaml
+  agents: registry/agents.yaml
+  skills: registry/skills.yaml
+  autonomy_policy: policies/AUTONOMY_POLICY.md
+  handoff_policy: policies/HANDOFF_POLICY.md
+  recurring_work: skills/owned/recurring-work/SKILL.md
+  host_profiles: HOST_PROFILES.md
+
+invariants:
+  - portable work items may propose or hand off work but do not grant execution authority
+  - task authorization must be explicit
+  - context and intelligence may propose work but do not authorize it
+  - product ownership remains canonical in registry/product-routing.yaml
+  - agent identity is distinct from harness/provider identity
+  - harness capability does not widen authorization
+  - host capability or host profile does not widen authorization
+  - workflows are declarative and contain no executable commands in v0alpha1
+  - workflow or schedule references do not authorize recurring execution
+  - evidence must distinguish execution and validation states
+  - secrets and credential values must never be stored in these contracts
+  - merge production destructive actions secrets access and spending remain governed by policy and task gates
+
+out_of_scope:
+  - runtime executor
+  - scheduler
+  - autonomous daemon
+  - production deployment automation
+  - secret storage
+  - dynamic Agent Control integration
+  - persistent agent creation

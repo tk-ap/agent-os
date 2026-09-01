@@ -1,0 +1,56 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:agent-os:contract:harness:v0"
+title: Agent OS Harness Contract v0
+summary: Describes an agentic executor's capabilities and trust boundary without granting authority.
+type: object
+additionalProperties: false
+required: [api_version, kind, metadata, spec]
+properties:
+  api_version:
+    const: agent-os/v0alpha1
+  kind:
+    const: Harness
+  metadata:
+    type: object
+    additionalProperties: false
+    required: [id]
+    properties:
+      id:
+        type: string
+        minLength: 1
+      provider:
+        type: string
+  spec:
+    type: object
+    additionalProperties: false
+    required: [mode, capabilities, authority_boundary]
+    properties:
+      mode:
+        type: string
+        enum: [local, remote, hybrid, workspace-service]
+      capabilities:
+        type: array
+        items:
+          type: string
+          enum: [filesystem, git, shell, browser, network, containers, mcp, local-models]
+        uniqueItems: true
+      compatible_hosts:
+        type: array
+        description: Optional host IDs or host classes known to be compatible.
+        items: {type: string}
+        uniqueItems: true
+        default: []
+      credential_classes:
+        type: array
+        description: Credential categories the harness may require; never credential values.
+        items: {type: string}
+        uniqueItems: true
+        default: []
+      constraints:
+        type: array
+        items: {type: string}
+        uniqueItems: true
+        default: []
+      authority_boundary:
+        const: policy-controlled
+        description: Harness capability can never widen task authorization.
