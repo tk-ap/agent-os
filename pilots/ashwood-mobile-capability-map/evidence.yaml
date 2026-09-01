@@ -7,43 +7,57 @@ spec:
   product: ashwood
   host: chatgpt-cloud-session
   harness: chatgpt-connected-tools
-  state: failed
+  state: previewed
   changes:
-    - first-pass hotspot-immersive.css attempted mobile-only hidden-map layout collapse
-    - capability map was intended to span both hotspot-grid columns only when active
-    - hidden hotspot rows were intended to stop reserving layout space while the map was active
+    - first pass attempted to hide only the capability map mounted as a direct child of principles-field
+    - user validation falsified that assumption: blank gap and blurred inactive map remained
+    - second pass removes any inactive mobile capability map globally from layout and compositing regardless of mount timing
+    - active capability map explicitly restores normal flow, full width, visibility, and interaction
+    - active map removes hotspot rows and hint from layout completely
+    - mobile hotspot field is visually reduced from six boxed cards to a quieter two-column editorial signal list with larger breathing room
   verification:
     - check: root-cause-trace
       result: passed
-      evidence_ref: capability-entry.js mounts map into principles-field; curiosity.js makes hidden map relative on mobile
+      evidence_ref: capability-entry.js/curiosity.js create and move capability-map across runtime phases; CSS must be mount-location agnostic while inactive
     - check: product-branch-scope
       result: passed
-      evidence_ref: first pass compared main...fix/mobile-capability-map-layout; one file; 20 additions; 0 deletions
-    - check: preview-deployment
+      evidence_ref: tk-ap/tk-ap.github.io:fix/mobile-capability-map-layout remains isolated to mobile hotspot/capability-map presentation
+    - check: first-preview-deployment
       result: passed
       evidence_ref: vercel:dpl_EKHe4kyhypL2PN9NSu7s4La2i4uc:READY
-    - check: preview-home-http
-      result: passed
-      evidence_ref: https://ashwood-o3kze3qtt-alvira2.vercel.app/:200
-    - check: mobile-visual-browser
+    - check: first-preview-mobile-visual
       result: failed
-      evidence_ref: user validation 2026-09-01 — giant blank gap remains; six hotspots feel crowded; capability map appears to reserve the gap while not clickable/viewable; blurred content remains visible behind; static links remain usable
+      evidence_ref: user validation 2026-09-01 — giant blank gap remained; hotspots crowded; capability map appeared to reserve gap while not clickable/viewable; blurred content visible behind; static links usable
+    - check: second-preview-deployment
+      result: passed
+      evidence_ref: vercel:dpl_AnZj7NrXTQ1LPB3XiDCrwWaKB6mX:READY
+    - check: second-preview-home-http
+      result: passed
+      evidence_ref: https://ashwood-f5m5dl7cx-alvira2.vercel.app/:200
+    - check: second-preview-mobile-visual
+      result: unknown
+      evidence_ref: awaiting human mobile validation of gap removal, hotspot density, capability-map open/close, and absence of blurred inactive map
   artifacts:
     - type: branch
       ref: tk-ap/tk-ap.github.io:fix/mobile-capability-map-layout
     - type: commit
       ref: 6e88f83ddbf6335cd14d49373ea933ec75c0a907
+    - type: commit
+      ref: b20bf5d4490aaab1b41117c6272624ae4ed0b742
     - type: pull-request
       ref: https://github.com/tk-ap/tk-ap.github.io/pull/14
     - type: preview
       ref: https://ashwood-o3kze3qtt-alvira2.vercel.app/
+    - type: preview
+      ref: https://ashwood-f5m5dl7cx-alvira2.vercel.app/
   gates:
     - gate: merge
       state: requires-human
     - gate: production
       state: requires-human
   notes:
-    - Preview readiness did not equal visual mobile verification; the first pass failed user validation.
-    - The second pass must remove the inactive map from both layout and visual compositing regardless of mount timing, and reduce mobile hotspot density.
-    - Static links remained usable, so the existing link-priority protection continues to pass.
+    - Preview readiness is not treated as visual mobile verification.
+    - The first preview failed visual validation and remains part of the audit trail.
+    - Static links remained usable in the failed first pass, confirming the link-priority invariant still holds.
+    - Second-pass visual verification remains required before merge confidence.
     - No merge or production promotion occurred in this pilot.
