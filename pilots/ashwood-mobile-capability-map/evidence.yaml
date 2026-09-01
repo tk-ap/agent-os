@@ -11,19 +11,21 @@ spec:
   changes:
     - first pass attempted to hide only the capability map mounted as a direct child of principles-field
     - user validation falsified that assumption: blank gap and blurred inactive map remained
-    - second pass removes any inactive mobile capability map globally from layout and compositing regardless of mount timing
-    - second pass reduces the six boxed hotspot cards to a quieter editorial signal treatment
-    - second human validation showed meaningful improvement but exposed active-map geometry: map content overflowed a fixed 100dvh entrance box and painted across downstream navigation
-    - second human validation also confirmed Doctor Bird itself was intentionally suppressed on coarse pointers even though the DOC / GUIDE launcher existed
-    - third pass changes the active capability entrance from fixed 100dvh height to auto height with a 100dvh minimum so downstream links move with the map
-    - third pass gives touch devices a static Doctor Bird companion while the guide panel is active
+    - second pass removed inactive mobile capability-map layout/compositing and reduced hotspot density
+    - second human validation showed meaningful improvement but exposed active-map geometry and missing mobile Doctor Bird
+    - third pass allowed the active map to grow beyond 100dvh and made Doctor Bird visible as a static touch companion
+    - user design review then rejected the mobile hotspot hunt itself as unnecessary interaction overhead and rejected the static bird treatment as insufficiently bird-like
+    - fourth pass retires the hotspot runtime/guidance offering on mobile while preserving desktop discovery
+    - fourth pass makes the capability map a native, always-visible mobile homepage chapter with a vertical reading spine and scroll-reactive active pattern
+    - fourth pass replaces the Doctor Bird bitmap with an inline layered SVG so body, wings and tail can animate independently
+    - fourth pass gives Doc waypoint-to-waypoint mobile flight, continuous wingbeats, hover motion, reverse orientation, and an exit flight
   verification:
     - check: root-cause-trace
       result: passed
-      evidence_ref: capability-entry.js/curiosity.js create and move capability-map across runtime phases; CSS must be mount-location agnostic while inactive
+      evidence_ref: capability-entry.js/curiosity.js create and move capability-map across runtime phases; earlier mobile collision was caused by fixed-height and hidden-state assumptions
     - check: product-branch-scope
       result: passed
-      evidence_ref: tk-ap/tk-ap.github.io:fix/mobile-capability-map-layout remains isolated to mobile hotspot/capability-map and mobile parity presentation
+      evidence_ref: tk-ap/tk-ap.github.io:fix/mobile-capability-map-layout remains isolated to homepage mobile capability/discovery and Doctor Bird presentation
     - check: first-preview-deployment
       result: passed
       evidence_ref: vercel:dpl_EKHe4kyhypL2PN9NSu7s4La2i4uc:READY
@@ -35,16 +37,25 @@ spec:
       evidence_ref: vercel:dpl_AnZj7NrXTQ1LPB3XiDCrwWaKB6mX:READY
     - check: second-preview-mobile-visual
       result: failed
-      evidence_ref: user validation 2026-09-01 at 393x852 — substantially better, but expanded capability map overlapped Modeling/Music/Builds/Connect after scroll; links should shift down/up with map state; Doctor Bird not visible on mobile
+      evidence_ref: user validation 2026-09-01 at 393x852 — substantially better, but expanded capability map overlapped Modeling/Music/Builds/Connect after scroll; Doctor Bird not visible on mobile
     - check: second-preview-static-links
       result: passed
       evidence_ref: user confirmed links remained usable despite visual overlap
     - check: third-preview-deployment
       result: passed
       evidence_ref: vercel:dpl_23XFEQHM1CoAK3wiBs9r5HXRsEUv:READY
-    - check: third-preview-mobile-visual
+    - check: third-preview-doc-motion
+      result: failed
+      evidence_ref: user validation 2026-09-01 — Doctor Bird appeared but remained static/stationary in the top-right while stepping through guide tiles
+    - check: mobile-architecture-decision
+      result: passed
+      evidence_ref: user approved retiring the mobile hotspot/tap-here offering and integrating capabilities directly into the mobile homepage in a more immersive form
+    - check: fourth-preview-deployment
+      result: passed
+      evidence_ref: vercel:dpl_CnAruqri9GsZCpy8EC9hHtfuxSUu:READY
+    - check: fourth-preview-mobile-visual
       result: unknown
-      evidence_ref: awaiting human validation of dynamic nav reflow, map collapse restoration, and static Doctor Bird guide visibility
+      evidence_ref: awaiting human validation of native capability chapter, absence of hotspot hunt, scroll reading-state behavior, Doc wingbeats/hovering, and waypoint flight
   artifacts:
     - type: branch
       ref: tk-ap/tk-ap.github.io:fix/mobile-capability-map-layout
@@ -54,6 +65,12 @@ spec:
       ref: b20bf5d4490aaab1b41117c6272624ae4ed0b742
     - type: commit
       ref: 4e335161890754c9b3a2bd85f02ad28122098862
+    - type: commit
+      ref: df30d7b215660f012a160ce9bc7c141cd547d365
+    - type: commit
+      ref: 7f0a30a67d5411eecd6ce867d75058781079c3d8
+    - type: commit
+      ref: a9afc1b58b86938d9ba91993edf45d0229e36ed3
     - type: pull-request
       ref: https://github.com/tk-ap/tk-ap.github.io/pull/14
     - type: preview
@@ -62,6 +79,8 @@ spec:
       ref: https://ashwood-f5m5dl7cx-alvira2.vercel.app/
     - type: preview
       ref: https://ashwood-kk43998mf-alvira2.vercel.app/
+    - type: preview
+      ref: https://ashwood-eu95rhiip-alvira2.vercel.app/
   gates:
     - gate: merge
       state: requires-human
@@ -69,8 +88,7 @@ spec:
       state: requires-human
   notes:
     - Preview readiness is not treated as visual mobile verification.
-    - Both failed visual verification cycles remain part of the audit trail.
-    - Second-pass feedback identified a distinct active-state issue after the inactive-map blank-space issue improved.
-    - The late theme layer fixed the direct capability entrance at 100dvh; third pass changes that to a minimum so content can expand the document flow.
-    - Doctor Bird desktop flight remains unchanged; touch receives a static guide treatment rather than desktop pointer physics.
+    - Failed visual verification cycles remain part of the audit trail rather than being overwritten.
+    - The user-approved mobile direction is now intentionally different from desktop: desktop retains latent hotspot discovery; mobile receives authored scroll-native capability reading.
+    - Doctor Bird is no longer a static rendered sprite in the fourth pass; the guide uses an animated SVG with independent wing/body/tail motion and waypoint flight.
     - No merge or production promotion occurred in this pilot.
