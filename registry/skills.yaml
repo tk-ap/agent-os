@@ -1,4 +1,4 @@
-version: 0.3.0
+version: 0.4.0
 
 policy:
   selection: minimum-sufficient-set
@@ -65,6 +65,11 @@ skills:
     trust: owned
     preferred_agents: [w-dog, eugene, designer, rook]
     triggers: [release readiness, production verification, integration completion, regression review]
+  market-truth-growth-intelligence:
+    path: skills/owned/market-truth-growth-intelligence/SKILL.md
+    trust: owned
+    preferred_agents: [scout, zoie, steward, ledger]
+    triggers: [market truth, growth intelligence, demand discovery, positioning evidence, portfolio growth signal, ailhat opportunity, ailhat risk, ailhat drift, ailhat work]
 
   competitive-intelligence:
     path: skills/vendor/competitive-intelligence/SKILL.md
