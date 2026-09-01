@@ -1,4 +1,4 @@
-version: 0.3.0
+version: 0.4.0
 team: agent-os
 
 routing:
@@ -29,8 +29,8 @@ agents:
     name: Bill
     role: Chief Logistics Officer
     identity: agents/bill/IDENTITY.md
-    owns: [execution-planning, sequencing, dependencies, ownership, resource-readiness, critical-path, handoffs, operational-efficiency]
-    core_skills: [dependency-mapping, execution-planning, critical-path-analysis, operational-readiness]
+    owns: [execution-planning, sequencing, dependencies, ownership, resource-readiness, critical-path, handoffs, operational-efficiency, recurring-work-design]
+    core_skills: [dependency-mapping, execution-planning, critical-path-analysis, operational-readiness, recurring-work]
     discover_domains: [automation, integrations, project-management, scheduling, operations]
     max_active_skills: 6
 
@@ -93,8 +93,8 @@ agents:
     name: Router
     role: Team Coordinator
     identity: agents/router/IDENTITY.md
-    owns: [task-classification, agent-selection, work-decomposition, coordination, handoff-enforcement, synthesis]
+    owns: [task-classification, agent-selection, work-decomposition, coordination, handoff-enforcement, synthesis, workforce-composition]
     core_skills: [skill-resolution, task-routing]
-    discover_domains: []
+    discover_domains: [agent-identity-design]
     max_active_skills: 3
-    restrictions: [does-not-own-domain-decisions, does-not-override-specialist-judgment-without-evidence, does-not-become-default-executor]
+    restrictions: [does-not-own-domain-decisions, does-not-override-specialist-judgment-without-evidence, does-not-become-default-executor, does-not-create-persistent-agents-without-human-approval]

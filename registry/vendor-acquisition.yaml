@@ -1,4 +1,4 @@
-version: 0.2.0
+version: 0.3.0
 status: plan-only
 activation_rule: Candidates remain non-executable until reviewed, adapted, validated, and explicitly marked approved in registry/skills.yaml.
 
@@ -18,6 +18,14 @@ sources:
     install_command: npx skills add agentmail-to/agentmail-skills
     role: first-party portable vendor source; select individual skills rather than installing AgentMail as an agent identity
     license: unresolved; no repository license file or searchable license declaration observed in the pinned snapshot, so verify before approval or vendoring
+  user-supplied-agent-skills-suite-2026-09-01:
+    source_type: local-user-supplied-package
+    review: registry/source-reviews/agent-skills-suite-2026-09-01.md
+    artifacts: [Agent Routine Builder Skill-20260901T213926Z-1-001.zip, Agent Persona SKILL-20260901T213924Z-1-001.zip, Agent Org Chart SKILL-20260901T213921Z-1-001.zip, AI Agent INSTRUCTIONS.md]
+    role: reviewed reference material only; selected concepts may inform owned Agent OS skills and policy
+    license: unresolved
+    executable: false
+    install_allowed: false
 
 candidates:
   - id: frontend-design
@@ -77,6 +85,43 @@ candidates:
     risk: broad skill with scripts and live-account assumptions; acquire only after adapter and dependency review
     priority: p2
 
+  # User-supplied suite is reference-only. It may inform owned capability design but
+  # must not be copied into skills/vendor or executed until provenance/license/layout
+  # issues are resolved and a separate approval is recorded.
+  - id: agent-routine-builder-reference
+    source: user-supplied-agent-skills-suite-2026-09-01
+    artifact: Agent Routine Builder Skill-20260901T213926Z-1-001.zip
+    intended_scope: design input for recurring-work contracts, failure guardrails, scheduling abstraction, validation, and cost controls
+    proposed_agents: [bill, rook, ledger, w-dog, router]
+    disposition: adapted-into-owned-recurring-work
+    trust: candidate
+    executable: false
+    license: unresolved
+    risk: package reference paths do not match supplied flat layout; quantitative/anecdotal claims require primary-source verification; platform-specific examples must not become core runtime assumptions
+    priority: p0
+  - id: agent-persona-builder-reference
+    source: user-supplied-agent-skills-suite-2026-09-01
+    artifact: Agent Persona SKILL-20260901T213924Z-1-001.zip
+    intended_scope: design input for persistent identity contracts, boundaries, continuity, handoffs, error correction, and first-task validation
+    proposed_agents: [router, steward, w-dog, rook]
+    disposition: adapted-into-owned-agent-identity-design
+    trust: candidate
+    executable: false
+    license: unresolved
+    risk: orchestrator-specific persona, memory, and heartbeat assumptions; package reference paths do not match supplied flat layout; must not dynamically proliferate Agent OS identities
+    priority: p1
+  - id: agent-org-planner-reference
+    source: user-supplied-agent-skills-suite-2026-09-01
+    artifact: Agent Org Chart SKILL-20260901T213921Z-1-001.zip
+    intended_scope: design input for agents-vs-skills decisions, minimum-sufficient-team routing, producer-inspector loops, handoffs, and bounded review termination
+    proposed_agents: [router, bill, w-dog, rook, steward]
+    disposition: adapted-into-router-and-handoff-policy
+    trust: candidate
+    executable: false
+    license: unresolved
+    risk: generic org generation conflicts with established Agent OS ownership if treated as authority; numeric coordination/review claims require independent verification; package reference paths do not match supplied flat layout
+    priority: p1
+
   # AgentMail capability supply. These are deliberately selective: mail is a
   # reusable workforce capability, not a standalone Agent OS agent.
   - id: agent-email-patterns
@@ -128,7 +173,7 @@ excluded_from_agentmail_registration:
   email-for-ai-agents: deprecated alias of agent-email-patterns; never install alongside canonical skill
 
 acquisition_checks:
-  - confirm exact pinned path and blob
+  - confirm exact pinned path and blob, or exact supplied artifact plus source-review record for local references
   - review license and upstream provenance
   - inspect all referenced files, scripts, tools, and dependencies
   - remove instructions that conflict with Agent OS ownership or autonomy policy

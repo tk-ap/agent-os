@@ -1,4 +1,4 @@
-version: 0.5.0
+version: 0.6.0
 
 policy:
   selection: minimum-sufficient-set
@@ -21,7 +21,37 @@ external_sources:
   - {name: agentic-awesome-skills, repository: sickn33/agentic-awesome-skills, mode: discovery-and-pin, trust: candidate}
   - {name: vercel-agent-skills, repository: vercel-labs/agent-skills, mode: discovery-and-pin, trust: candidate}
   - {name: agentmail-skills, repository: agentmail-to/agentmail-skills, mode: portable-vendor-source-and-pin, trust: candidate}
+  - {name: user-supplied-agent-skills-suite-2026-09-01, mode: reviewed-reference-only, trust: candidate, review: registry/source-reviews/agent-skills-suite-2026-09-01.md}
   - {name: github, url: https://github.com/, mode: discovery-and-pin, trust: candidate}
+
+reviewed_reference_material:
+  agent-routine-builder-reference:
+    trust: candidate
+    usable: false
+    executable: false
+    source: user-supplied-agent-skills-suite-2026-09-01
+    source_artifact: Agent Routine Builder Skill-20260901T213926Z-1-001.zip
+    license: unresolved
+    disposition: adapt-selected-concepts-into-owned-recurring-work
+    review: registry/source-reviews/agent-skills-suite-2026-09-01.md
+  agent-persona-builder-reference:
+    trust: candidate
+    usable: false
+    executable: false
+    source: user-supplied-agent-skills-suite-2026-09-01
+    source_artifact: Agent Persona SKILL-20260901T213924Z-1-001.zip
+    license: unresolved
+    disposition: adapt-selected-concepts-into-owned-agent-identity-design
+    review: registry/source-reviews/agent-skills-suite-2026-09-01.md
+  agent-org-planner-reference:
+    trust: candidate
+    usable: false
+    executable: false
+    source: user-supplied-agent-skills-suite-2026-09-01
+    source_artifact: Agent Org Chart SKILL-20260901T213921Z-1-001.zip
+    license: unresolved
+    disposition: adapt-agents-vs-skills-and-bounded-review-loops-into-workforce-policy
+    review: registry/source-reviews/agent-skills-suite-2026-09-01.md
 
 supply_chain:
   stages: [need, local-search, external-discovery, evaluate, approve, pin, vendor-or-reference, assign, measure, retain-or-demote]
@@ -46,6 +76,19 @@ skills:
     trust: owned
     preferred_agents: [router, bill, steward, rook, ledger]
     triggers: [cross-agent work, externally mutating work, ailhat signal routing, sponsored task]
+  recurring-work:
+    path: skills/owned/recurring-work/SKILL.md
+    trust: owned
+    priority: p0
+    primary_agent: bill
+    preferred_agents: [bill, rook, ledger, w-dog, router]
+    triggers: [recurring work, scheduled task, repeated automation, cron job, periodic agent work, event-triggered routine, recurring monitoring, recurring delivery]
+  agent-identity-design:
+    path: skills/owned/agent-identity-design/SKILL.md
+    trust: owned
+    priority: p1
+    preferred_agents: [router, steward, w-dog, rook]
+    triggers: [create persistent agent, review agent identity, agent role overlap, agents vs skills, workforce composition, merge agents, retire agent]
   context-provenance:
     path: skills/owned/context-provenance/SKILL.md
     trust: owned
@@ -171,6 +214,7 @@ skills:
 
 candidate_plan: registry/vendor-acquisition.yaml
 product_routing: registry/product-routing.yaml
+source_reviews: registry/source-reviews/
 
 candidate_review:
   required_checks: [relevance, source-and-repository-provenance, license, instruction-safety, dependency-and-tool-requirements, conflict-with-agent-os-policies, overlap-with-existing-skills, context-cost, expected-quality-gain, forward-test]
