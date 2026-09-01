@@ -1,0 +1,39 @@
+version: 0.1.0
+status: v0alpha1
+mode: declarative-non-executable
+
+contracts:
+  task:
+    schema: contracts/v0/task.schema.yaml
+    purpose: governed unit of requested work
+  workflow:
+    schema: contracts/v0/workflow.schema.yaml
+    purpose: repeatable task-class stages, gates, and evidence expectations
+  harness:
+    schema: contracts/v0/harness.schema.yaml
+    purpose: agentic executor capability and trust-boundary description
+  host:
+    schema: contracts/v0/host.schema.yaml
+    purpose: execution-location capability and ownership description
+  evidence:
+    schema: contracts/v0/evidence.schema.yaml
+    purpose: structured execution truth and unresolved gates
+
+invariants:
+  - task authorization must be explicit
+  - context and intelligence may propose work but do not authorize it
+  - agent identity is distinct from harness/provider identity
+  - harness capability does not widen authorization
+  - host capability does not widen authorization
+  - workflows are declarative and contain no executable commands in v0alpha1
+  - evidence must distinguish execution and validation states
+  - secrets and credential values must never be stored in these contracts
+  - merge production destructive actions secrets access and spending remain governed by policy and task gates
+
+out_of_scope:
+  - runtime executor
+  - scheduler
+  - autonomous daemon
+  - production deployment automation
+  - secret storage
+  - dynamic Agent Control integration
