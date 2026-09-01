@@ -41,7 +41,7 @@ products:
     plane: intelligence
     role: host-agnostic portfolio intelligence and product signal
     primary_agents: [scout, zoie, steward, router, w-dog]
-    default_skills: [market-truth-growth-intelligence, competitive-intelligence, research-synthesis, task-envelope, audit-evidence-ledger]
+    default_skills: [market-truth-growth-intelligence, opportunity-triage, competitive-intelligence, research-synthesis, task-envelope, audit-evidence-ledger]
     growth_pilot: true
     growth_output: [SIGNAL, EVIDENCE, PORTFOLIO_RELEVANCE, INTERPRETATION, RECOMMENDED_EXPERIMENT, SUCCESS_SIGNAL, LEARNING]
     constraints: [signals propose work, simulated findings must be labeled, recommendations require evidence, market language should be discovered rather than assumed, portfolio attention decisions remain governed]
