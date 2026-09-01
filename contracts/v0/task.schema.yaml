@@ -1,0 +1,74 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:agent-os:contract:task:v0"
+title: Agent OS Task Contract v0
+summary: Governed execution instance. A task may originate from a portable work item but never authorizes itself.
+type: object
+additionalProperties: false
+required: [api_version, kind, metadata, spec]
+properties:
+  api_version:
+    const: agent-os/v0alpha1
+  kind:
+    const: Task
+  metadata:
+    type: object
+    additionalProperties: false
+    required: [id]
+    properties:
+      id:
+        type: string
+        minLength: 1
+      source:
+        type: string
+        description: Human or upstream system that proposed or resolved the task.
+      work_item_ref:
+        type: string
+        description: Optional reference to a portable contracts/work-item.schema.json object that proposed or handed off this work. The work item does not itself grant execution authority.
+  spec:
+    type: object
+    additionalProperties: false
+    required: [type, outcome, product, authorization]
+    properties:
+      type:
+        type: string
+        minLength: 1
+      outcome:
+        type: string
+        minLength: 1
+      product:
+        type: string
+        minLength: 1
+        description: Canonical product/shared-capability key resolved through registry/product-routing.yaml.
+      constraints:
+        type: array
+        items: {type: string}
+        uniqueItems: true
+        default: []
+      context_refs:
+        type: array
+        description: References only; context content stays in its authoritative source. Portable context envelopes may be referenced where applicable.
+        items: {type: string}
+        uniqueItems: true
+        default: []
+      human_gates:
+        type: array
+        description: Actions that remain explicitly human-gated for this task.
+        items: {type: string}
+        uniqueItems: true
+        default: []
+      authorization:
+        type: object
+        additionalProperties: false
+        required: [state]
+        properties:
+          state:
+            type: string
+            enum: [proposed, approval-required, authorized, denied]
+          policy_refs:
+            type: array
+            items: {type: string}
+            uniqueItems: true
+            default: []
+          authority_ref:
+            type: string
+            description: Reference to the human or Agent Control authorization decision; never a secret. May reference a portable authorization-request/outcome where applicable.

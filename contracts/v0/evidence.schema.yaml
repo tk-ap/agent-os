@@ -1,0 +1,88 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:agent-os:contract:evidence:v0"
+title: Agent OS Evidence Contract v0
+summary: Structured execution truth returned by work. An assertion of done is not sufficient evidence.
+type: object
+additionalProperties: false
+required: [api_version, kind, metadata, spec]
+properties:
+  api_version:
+    const: agent-os/v0alpha1
+  kind:
+    const: Evidence
+  metadata:
+    type: object
+    additionalProperties: false
+    required: [id]
+    properties:
+      id:
+        type: string
+        minLength: 1
+  spec:
+    type: object
+    additionalProperties: false
+    required: [task, state, verification, gates]
+    properties:
+      task:
+        type: string
+        minLength: 1
+      product:
+        type: string
+      host:
+        type: string
+      harness:
+        type: string
+      state:
+        type: string
+        enum: [proposed, simulated, attempted, implemented, previewed, verified, deployed, user-validated, failed, blocked]
+      changes:
+        type: array
+        items: {type: string}
+        default: []
+      verification:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [check, result]
+          properties:
+            check:
+              type: string
+              minLength: 1
+            result:
+              type: string
+              enum: [passed, failed, skipped, unknown]
+            evidence_ref:
+              type: string
+              description: Non-secret reference to a log, preview, test, screenshot, commit, or other verification artifact.
+      artifacts:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [type, ref]
+          properties:
+            type:
+              type: string
+              enum: [branch, commit, pull-request, preview, deployment, report, log, other]
+            ref:
+              type: string
+              minLength: 1
+        default: []
+      gates:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [gate, state]
+          properties:
+            gate:
+              type: string
+              minLength: 1
+            state:
+              type: string
+              enum: [requires-human, approved, denied, not-applicable]
+      notes:
+        type: array
+        items: {type: string}
+        default: []

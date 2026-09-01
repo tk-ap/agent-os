@@ -1,0 +1,54 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:agent-os:contract:host:v0"
+title: Agent OS Host Contract v0
+summary: Describes where work may execute. Host capability never implies task authority.
+type: object
+additionalProperties: false
+required: [api_version, kind, metadata, spec]
+properties:
+  api_version:
+    const: agent-os/v0alpha1
+  kind:
+    const: Host
+  metadata:
+    type: object
+    additionalProperties: false
+    required: [id]
+    properties:
+      id:
+        type: string
+        minLength: 1
+  spec:
+    type: object
+    additionalProperties: false
+    required: [class, ownership, persistence, capabilities, authority_boundary]
+    properties:
+      class:
+        type: string
+        enum: [workstation, ci, cloud-runtime, server, other]
+      ownership:
+        type: string
+        enum: [user, organization, provider, unknown]
+      persistence:
+        type: string
+        enum: [persistent, ephemeral]
+      network:
+        type: string
+        enum: [offline-capable, restricted, networked]
+      capabilities:
+        type: array
+        items:
+          type: string
+          enum: [filesystem, git, shell, browser, network, containers, local-models, persistent-storage]
+        uniqueItems: true
+      secret_boundary:
+        type: string
+        enum: [none, scoped, owner-controlled, provider-managed]
+      constraints:
+        type: array
+        items: {type: string}
+        uniqueItems: true
+        default: []
+      authority_boundary:
+        const: policy-controlled
+        description: A capable host cannot grant a task permissions that policy did not authorize.
