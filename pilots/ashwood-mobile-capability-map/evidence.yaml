@@ -7,18 +7,18 @@ spec:
   product: ashwood
   host: chatgpt-cloud-session
   harness: chatgpt-connected-tools
-  state: previewed
+  state: failed
   changes:
-    - hotspot-immersive.css adds mobile-only hidden-map layout collapse
-    - capability map spans both hotspot-grid columns only when active
-    - hidden hotspot rows stop reserving layout space while the map is active
+    - first-pass hotspot-immersive.css attempted mobile-only hidden-map layout collapse
+    - capability map was intended to span both hotspot-grid columns only when active
+    - hidden hotspot rows were intended to stop reserving layout space while the map was active
   verification:
     - check: root-cause-trace
       result: passed
       evidence_ref: capability-entry.js mounts map into principles-field; curiosity.js makes hidden map relative on mobile
     - check: product-branch-scope
       result: passed
-      evidence_ref: compare:main...fix/mobile-capability-map-layout; one file; 20 additions; 0 deletions
+      evidence_ref: first pass compared main...fix/mobile-capability-map-layout; one file; 20 additions; 0 deletions
     - check: preview-deployment
       result: passed
       evidence_ref: vercel:dpl_EKHe4kyhypL2PN9NSu7s4La2i4uc:READY
@@ -26,8 +26,8 @@ spec:
       result: passed
       evidence_ref: https://ashwood-o3kze3qtt-alvira2.vercel.app/:200
     - check: mobile-visual-browser
-      result: unknown
-      evidence_ref: selected host has no visual mobile-browser capability; required before merge confidence
+      result: failed
+      evidence_ref: user validation 2026-09-01 — giant blank gap remains; six hotspots feel crowded; capability map appears to reserve the gap while not clickable/viewable; blurred content remains visible behind; static links remain usable
   artifacts:
     - type: branch
       ref: tk-ap/tk-ap.github.io:fix/mobile-capability-map-layout
@@ -43,5 +43,7 @@ spec:
     - gate: production
       state: requires-human
   notes:
-    - Preview readiness is not treated as visual mobile verification.
+    - Preview readiness did not equal visual mobile verification; the first pass failed user validation.
+    - The second pass must remove the inactive map from both layout and visual compositing regardless of mount timing, and reduce mobile hotspot density.
+    - Static links remained usable, so the existing link-priority protection continues to pass.
     - No merge or production promotion occurred in this pilot.
