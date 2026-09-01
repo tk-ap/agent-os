@@ -1,0 +1,50 @@
+pilot_version: 0.1
+resolution:
+  task: ashwood-mobile-capability-map-layout
+  product:
+    id: ashwood
+    repository: tk-ap/tk-ap.github.io
+    base: main
+    product_branch: fix/mobile-capability-map-layout
+  context:
+    - tk-ap/tk-ap.github.io:ASHWOOD_V2_HOTSPOT_RECONCILIATION.md
+    - tk-ap/tk-ap.github.io:index.html
+    - tk-ap/tk-ap.github.io:hotspot-immersive.css
+    - tk-ap/tk-ap.github.io:curiosity.js
+    - tk-ap/tk-ap.github.io:capability-entry.js
+    - registry/product-routing.yaml#products.ashwood
+  authorization:
+    state: authorized
+    scope:
+      - inspect relevant source and product context
+      - create reversible task branches
+      - modify the bounded mobile layout defect
+      - create preview and draft pull-request evidence
+    human_gates:
+      - merge
+      - production
+  agents:
+    accountable: eugene
+    supporting:
+      - designer
+    rationale: >-
+      Eugene owns implementation, debugging, and testing; Designer is the minimum
+      useful support for interaction and mobile experience verification.
+  skills:
+    - task-envelope
+    - authorization-policy
+    - audit-evidence-ledger
+    - end-to-end-verification
+  harness: chatgpt-connected-tools
+  host: chatgpt-cloud-session
+  external_targets:
+    source_control: github
+    preview_runtime: vercel
+  workflow: ashwood-reference-bug-fix
+  implementation:
+    file: hotspot-immersive.css
+    commit: 6e88f83ddbf6335cd14d49373ea933ec75c0a907
+    pull_request: https://github.com/tk-ap/tk-ap.github.io/pull/14
+    preview: https://ashwood-o3kze3qtt-alvira2.vercel.app/
+  unresolved:
+    - visual mobile-browser verification before merge
