@@ -12,16 +12,18 @@ spec:
     - first pass attempted to hide only the capability map mounted as a direct child of principles-field
     - user validation falsified that assumption: blank gap and blurred inactive map remained
     - second pass removes any inactive mobile capability map globally from layout and compositing regardless of mount timing
-    - active capability map explicitly restores normal flow, full width, visibility, and interaction
-    - active map removes hotspot rows and hint from layout completely
-    - mobile hotspot field is visually reduced from six boxed cards to a quieter two-column editorial signal list with larger breathing room
+    - second pass reduces the six boxed hotspot cards to a quieter editorial signal treatment
+    - second human validation showed meaningful improvement but exposed active-map geometry: map content overflowed a fixed 100dvh entrance box and painted across downstream navigation
+    - second human validation also confirmed Doctor Bird itself was intentionally suppressed on coarse pointers even though the DOC / GUIDE launcher existed
+    - third pass changes the active capability entrance from fixed 100dvh height to auto height with a 100dvh minimum so downstream links move with the map
+    - third pass gives touch devices a static Doctor Bird companion while the guide panel is active
   verification:
     - check: root-cause-trace
       result: passed
       evidence_ref: capability-entry.js/curiosity.js create and move capability-map across runtime phases; CSS must be mount-location agnostic while inactive
     - check: product-branch-scope
       result: passed
-      evidence_ref: tk-ap/tk-ap.github.io:fix/mobile-capability-map-layout remains isolated to mobile hotspot/capability-map presentation
+      evidence_ref: tk-ap/tk-ap.github.io:fix/mobile-capability-map-layout remains isolated to mobile hotspot/capability-map and mobile parity presentation
     - check: first-preview-deployment
       result: passed
       evidence_ref: vercel:dpl_EKHe4kyhypL2PN9NSu7s4La2i4uc:READY
@@ -31,12 +33,18 @@ spec:
     - check: second-preview-deployment
       result: passed
       evidence_ref: vercel:dpl_AnZj7NrXTQ1LPB3XiDCrwWaKB6mX:READY
-    - check: second-preview-home-http
-      result: passed
-      evidence_ref: https://ashwood-f5m5dl7cx-alvira2.vercel.app/:200
     - check: second-preview-mobile-visual
+      result: failed
+      evidence_ref: user validation 2026-09-01 at 393x852 — substantially better, but expanded capability map overlapped Modeling/Music/Builds/Connect after scroll; links should shift down/up with map state; Doctor Bird not visible on mobile
+    - check: second-preview-static-links
+      result: passed
+      evidence_ref: user confirmed links remained usable despite visual overlap
+    - check: third-preview-deployment
+      result: passed
+      evidence_ref: vercel:dpl_23XFEQHM1CoAK3wiBs9r5HXRsEUv:READY
+    - check: third-preview-mobile-visual
       result: unknown
-      evidence_ref: awaiting human mobile validation of gap removal, hotspot density, capability-map open/close, and absence of blurred inactive map
+      evidence_ref: awaiting human validation of dynamic nav reflow, map collapse restoration, and static Doctor Bird guide visibility
   artifacts:
     - type: branch
       ref: tk-ap/tk-ap.github.io:fix/mobile-capability-map-layout
@@ -44,12 +52,16 @@ spec:
       ref: 6e88f83ddbf6335cd14d49373ea933ec75c0a907
     - type: commit
       ref: b20bf5d4490aaab1b41117c6272624ae4ed0b742
+    - type: commit
+      ref: 4e335161890754c9b3a2bd85f02ad28122098862
     - type: pull-request
       ref: https://github.com/tk-ap/tk-ap.github.io/pull/14
     - type: preview
       ref: https://ashwood-o3kze3qtt-alvira2.vercel.app/
     - type: preview
       ref: https://ashwood-f5m5dl7cx-alvira2.vercel.app/
+    - type: preview
+      ref: https://ashwood-kk43998mf-alvira2.vercel.app/
   gates:
     - gate: merge
       state: requires-human
@@ -57,7 +69,8 @@ spec:
       state: requires-human
   notes:
     - Preview readiness is not treated as visual mobile verification.
-    - The first preview failed visual validation and remains part of the audit trail.
-    - Static links remained usable in the failed first pass, confirming the link-priority invariant still holds.
-    - Second-pass visual verification remains required before merge confidence.
+    - Both failed visual verification cycles remain part of the audit trail.
+    - Second-pass feedback identified a distinct active-state issue after the inactive-map blank-space issue improved.
+    - The late theme layer fixed the direct capability entrance at 100dvh; third pass changes that to a minimum so content can expand the document flow.
+    - Doctor Bird desktop flight remains unchanged; touch receives a static guide treatment rather than desktop pointer physics.
     - No merge or production promotion occurred in this pilot.
