@@ -1,4 +1,4 @@
-version: 0.6.0
+version: 0.6.1
 
 policy:
   selection: minimum-sufficient-set
@@ -89,6 +89,13 @@ skills:
     priority: p1
     preferred_agents: [router, steward, w-dog, rook]
     triggers: [create persistent agent, review agent identity, agent role overlap, agents vs skills, workforce composition, merge agents, retire agent]
+  brand-identity-direction:
+    path: skills/owned/brand-identity-direction/SKILL.md
+    trust: owned
+    priority: p1
+    primary_agent: designer
+    preferred_agents: [designer, scout, rook, w-dog]
+    triggers: [brand identity, logo direction, logo design, wordmark, visual identity, identity system, product rename identity, brand system, favicon, app icon]
   context-provenance:
     path: skills/owned/context-provenance/SKILL.md
     trust: owned
