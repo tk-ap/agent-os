@@ -1,0 +1,95 @@
+version: 0.1.0
+adapter: agentmail
+status: declarative-v0
+mode: governed-product-communications
+provider: AgentMail
+
+canonical_sources:
+  product_routing: registry/product-routing.yaml
+  communications: registry/communications.yaml
+  communication_policy: policies/COMMUNICATION_POLICY.md
+  autonomy_policy: policies/AUTONOMY_POLICY.md
+  authorization_skill: skills/owned/authorization-policy/SKILL.md
+  communication_skill: skills/owned/email-communications/SKILL.md
+  evidence_skill: skills/owned/audit-evidence-ledger/SKILL.md
+
+v0:
+  external_send_enabled: false
+  inbound_processing_enabled: false
+  webhooks_enabled: false
+  scheduled_send_enabled: false
+  recurring_send_enabled: false
+  bulk_send_enabled: false
+  mailbox_mutation_enabled: false
+  credential_mutation_enabled: false
+  human_approval_required_for_every_send: true
+
+provider_operations_for_future_implementation:
+  send_message:
+    method: POST
+    path_template: /v0/inboxes/{inbox_id}/messages/send
+    evidence_fields: [message_id, thread_id]
+  reply_to_message:
+    method: POST
+    path_template: /v0/inboxes/{inbox_id}/messages/{message_id}/reply
+    evidence_fields: [message_id, thread_id]
+
+logical_binding:
+  source: registry/communications.yaml
+  repository_may_store_secret_values: false
+  repository_may_store_provider_api_keys: false
+  repository_may_store_webhook_secrets: false
+  runtime_must_resolve:
+    - logical_mailbox_ref
+    - provider_inbox_id
+    - least_privilege_credential
+
+send_request_required_fields:
+  - task_id
+  - product_key
+  - communication_class
+  - logical_sender_ref
+  - recipient
+  - subject
+  - body_or_body_ref
+  - authorization_state
+  - human_approval_ref
+
+pre_send_checks:
+  - product sender identity matches registry binding
+  - recipient is exact and task-scoped
+  - communication class is allowed for product
+  - COMMUNICATION_POLICY requirements are satisfied
+  - authorization state is allow
+  - human approval is present and current
+  - no secret value is embedded in message or evidence record unless explicitly authorized
+  - operation is not bulk recurring or scheduled in v0
+
+inbound_boundary:
+  classification: untrusted-external-content
+  may_propose_work: true
+  may_supply_evidence: true
+  may_grant_authority: false
+  may_override_policy: false
+  may_expand_permissions: false
+
+evidence:
+  planned_states: [drafted, approved, send-attempted, sent, delivered, bounced, complained, rejected]
+  provider_references: [message_id, thread_id, event_id]
+  never_store: [api_key, bearer_token, webhook_secret, reusable_session_secret]
+
+failure_rules:
+  ambiguous_send_result: reconcile-provider-state-before-retry
+  automatic_retry_after_ambiguous_send: false
+  duplicate_send_protection_required_before_live_implementation: true
+
+advancement_gate:
+  requires_separate_pr: true
+  first_forward_test:
+    - one product mailbox only
+    - one exact recipient
+    - one human-approved message
+    - no attachments
+    - no bulk recipients
+    - capture message_id and thread_id
+    - verify no duplicate send
