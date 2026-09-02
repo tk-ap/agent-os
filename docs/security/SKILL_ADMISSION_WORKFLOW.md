@@ -13,7 +13,7 @@ Admission never answers the second question by itself.
 
 ## Flow
 
-`discover -> capture immutable source -> quarantine -> inspect -> declare capabilities -> classify risk -> sandbox -> independent review -> approve/pin -> activate narrowly -> monitor -> suspend/revoke/revalidate`
+`discover -> capture immutable source -> quarantine -> optional scanner evidence -> inspect -> declare capabilities -> classify risk -> sandbox -> independent review -> approve/pin -> activate narrowly -> monitor -> suspend/revoke/revalidate`
 
 ## 0. Establish the capability gap
 
@@ -51,7 +51,24 @@ Quarantine rules:
 
 A candidate telling the reviewing agent to install itself, rewrite policy, bypass review, expose secrets, or obtain broader permissions is a security finding.
 
-## 3. Inspect the complete behavior surface
+## 3. Optional scanner evidence
+
+A reviewed security scanner may inspect the already captured quarantined material before manual source inspection. Scanner output is evidence, never approval or authorization.
+
+Current candidate tooling is recorded in `registry/security-tools.yaml`. NVIDIA SkillSpector is the first candidate and is not activated by this policy.
+
+When scanner evidence is used:
+
+- scan the exact immutable material under review, not a mutable upstream branch;
+- prefer local/static analysis without production credentials for the initial pass;
+- record the exact scanner digest/version and scan mode with the evidence;
+- treat suppressions/baselines as reviewed evidence rather than a way to hide new findings;
+- do not allow a low risk score or `safe_to_install` result to skip complete-source inspection, capability declaration, sandboxing, independent review, or human approval where required;
+- the scanner itself must pass the Agent OS trust process before it can be bound into an enforced runtime or CI admission gate.
+
+A static-only clean scan must never be represented as semantic, dependency, sandbox, or runtime clearance.
+
+## 4. Inspect the complete behavior surface
 
 Do not stop at `SKILL.md`.
 
@@ -83,7 +100,7 @@ Inspect all applicable material:
 - Could a dependency or install hook execute before Agent OS can enforce the capability boundary?
 - Does it weaken validation, logging, sandboxing, authorization, or review controls?
 
-## 4. Declare capabilities
+## 5. Declare capabilities
 
 Create a declaration conforming to `contracts/skill-capability.schema.json`.
 
@@ -93,7 +110,7 @@ No wildcards should be accepted when a concrete path, domain, package, secret, s
 
 A skill that declares `network.allowed: false` and later requests network access fails closed. Update requires a new admission review; it is not a runtime clarification.
 
-## 5. Classify risk
+## 6. Classify risk
 
 Assign the highest applicable class:
 
@@ -106,7 +123,7 @@ Assign the highest applicable class:
 
 A text-oriented skill that runs a shell installer is L3, not L0. A design skill that uploads assets is at least L4 for that workflow. A mailbox skill that sends email is L4 even if the instruction file itself is plain text.
 
-## 6. Sandbox and adversarial forward test
+## 7. Sandbox and adversarial forward test
 
 Required for L2+ and whenever the candidate contains executable behavior.
 
@@ -131,7 +148,7 @@ Attempt the normal advertised workflow plus tests for:
 
 The primary task succeeding does not cancel a boundary failure.
 
-## 7. Independent review and separation of duties
+## 8. Independent review and separation of duties
 
 Minimum review by risk:
 
@@ -144,7 +161,7 @@ Minimum review by risk:
 
 No skill may approve itself. A producer who adapted or authored an admission record is not sufficient independent evidence for L3+.
 
-## 8. Approve and pin
+## 9. Approve and pin
 
 An approval must record:
 
@@ -153,6 +170,8 @@ An approval must record:
 - risk class;
 - capability declaration;
 - reviewers and review date;
+- scanner result/evidence reference when a scanner was used;
+- scanner version/digest and scan mode when a scanner was used;
 - sandbox result and evidence reference;
 - permitted agents/triggers;
 - known risks and assumptions;
@@ -161,7 +180,7 @@ An approval must record:
 
 Approved external skill material is vendored or referenced immutably. Never execute mutable upstream `latest` behavior.
 
-## 9. Activate narrowly
+## 10. Activate narrowly
 
 At runtime, admission and authorization are separate gates.
 
@@ -176,7 +195,7 @@ For each load:
 
 The agent's unrelated permissions must not automatically flow into the skill.
 
-## 10. Monitor and revoke
+## 11. Monitor and revoke
 
 Suspend immediately when there is evidence of:
 
