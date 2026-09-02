@@ -1,4 +1,4 @@
-version: 0.6.1
+version: 0.7.0
 
 policy:
   selection: minimum-sufficient-set
@@ -21,6 +21,8 @@ external_sources:
   - {name: agentic-awesome-skills, repository: sickn33/agentic-awesome-skills, mode: discovery-and-pin, trust: candidate}
   - {name: vercel-agent-skills, repository: vercel-labs/agent-skills, mode: discovery-and-pin, trust: candidate}
   - {name: agentmail-skills, repository: agentmail-to/agentmail-skills, mode: portable-vendor-source-and-pin, trust: candidate}
+  - {name: anti-slop-design-suite, repository: miqdadbadjuber/anti-slop, mode: reviewed-selective-acquisition, trust: candidate, review: registry/source-reviews/anti-slop-sources-2026-09-02.md}
+  - {name: anti-slop-code-audit, repository: iuliandita/skills, mode: reviewed-selective-acquisition, trust: candidate, review: registry/source-reviews/anti-slop-sources-2026-09-02.md}
   - {name: user-supplied-agent-skills-suite-2026-09-01, mode: reviewed-reference-only, trust: candidate, review: registry/source-reviews/agent-skills-suite-2026-09-01.md}
   - {name: github, url: https://github.com/, mode: discovery-and-pin, trust: candidate}
 
@@ -116,6 +118,12 @@ skills:
     trust: owned
     preferred_agents: [w-dog, eugene, designer, rook]
     triggers: [release readiness, production verification, integration completion, regression review]
+  quality-railguards:
+    path: skills/owned/quality-railguards/SKILL.md
+    trust: owned
+    priority: p0
+    preferred_agents: [w-dog, eugene, designer, rook, steward, bill]
+    triggers: [anti slop, quality gate, AI generated code, generic UI, generic copy, overengineered implementation, test theater, pre delivery review, release quality, false verification, no op churn]
   market-truth-growth-intelligence:
     path: skills/owned/market-truth-growth-intelligence/SKILL.md
     trust: owned
@@ -142,6 +150,45 @@ skills:
     trust: approved
     preferred_agents: [designer, scout]
     provenance: {repository: anthropics/knowledge-work-plugins, pinned_commit: 4fa3cb92e2942d6594200fa8d2c800708e086072, license: Apache-2.0, review_basis: migrated existing Agent OS adaptation, permitted_agents: [designer, scout], dependencies: [], risks: [small or biased samples must not be treated as market proof]}
+
+  # Anti-slop sources are reviewed capability supply. The owned quality railguard
+  # is active now; specialist upstream skills remain non-executable candidates until
+  # Agent OS adaptation, dependency inspection, and forward testing are complete.
+  antislop-ui:
+    trust: candidate
+    source: anti-slop-design-suite
+    upstream_path: skills/antislop-ui/SKILL.md
+    preferred_agents: [designer, eugene, w-dog]
+    triggers: [UI slop audit, generic interface, visual craftsmanship, interface specificity, design quality review]
+    provenance: {repository: miqdadbadjuber/anti-slop, pinned_commit: d9c341673ae28d3b8d0cab6ef6b968e49c72705c, pinned_blob: 109eb85ad570b3c3ceb988e715e0aeb15c0b8f42, license: MIT, review_basis: selective source review; upstream core coupling and tool assumptions require adaptation, permitted_agents: [designer, eugene, w-dog], dependencies: [upstream antislop core concepts], risks: [can over-prescribe aesthetics, upstream expects core loaded alongside, must not override product art direction]}
+  antislop-copywriting:
+    trust: candidate
+    source: anti-slop-design-suite
+    upstream_path: skills/antislop-copywriting/SKILL.md
+    preferred_agents: [designer, steward, scout, zoie]
+    triggers: [AI copy slop, product copy review, landing page copy, generic CTA, unsupported marketing claim, voice preservation]
+    provenance: {repository: miqdadbadjuber/anti-slop, pinned_commit: d9c341673ae28d3b8d0cab6ef6b968e49c72705c, pinned_blob: 84d8ffceebffb911d0703bded921a17c699c460d, license: MIT, review_basis: selective source review; evidence and voice rules align but core rule dependencies require adaptation, permitted_agents: [designer, steward, scout, zoie], dependencies: [upstream antislop core concepts], risks: [style preferences can flatten deliberate voice, examples must not become universal bans]}
+  antislop-human:
+    trust: candidate
+    source: anti-slop-design-suite
+    upstream_path: skills/antislop-human/SKILL.md
+    preferred_agents: [designer, eugene, w-dog, rook]
+    triggers: [accessibility craftsmanship, contrast check, keyboard focus review, human UI review, interface states]
+    provenance: {repository: miqdadbadjuber/anti-slop, pinned_commit: d9c341673ae28d3b8d0cab6ef6b968e49c72705c, pinned_blob: 028795128b9ddb3cdf9ff44373ddd553ed6596a0, license: MIT, review_basis: selective source review; accessibility depth useful but script/tool path assumptions require review, permitted_agents: [designer, eugene, w-dog, rook], dependencies: [contrast-check.py, upstream antislop core concepts], risks: [script path/tool assumptions, accessibility claims require real verification rather than prose-only checklist]}
+  antislop-layoutmobile:
+    trust: candidate
+    source: anti-slop-design-suite
+    upstream_path: skills/antislop-layoutmobile/SKILL.md
+    preferred_agents: [designer, eugene, w-dog]
+    triggers: [mobile slop, responsive layout review, overflow, tap targets, mobile navigation, breakpoint quality]
+    provenance: {repository: miqdadbadjuber/anti-slop, pinned_commit: d9c341673ae28d3b8d0cab6ef6b968e49c72705c, pinned_blob: 7a143b17845a3f7ec839f63e2606fbee3f287eb4, license: MIT, review_basis: selective source review; mobile-as-distinct-layout principle aligns strongly with observed product failures, permitted_agents: [designer, eugene, w-dog], dependencies: [upstream antislop core concepts], risks: [heuristic breakpoint prescriptions must not replace rendered testing, upstream core coupling]}
+  anti-slop-code-audit:
+    trust: candidate
+    source: anti-slop-code-audit
+    upstream_path: skills/anti-slop/SKILL.md
+    preferred_agents: [eugene, w-dog, rook]
+    triggers: [code slop audit, hallucinated API, over abstraction, generic naming, duplicate generated code, defensive overkill, test theater, AI generated cleanup]
+    provenance: {repository: iuliandita/skills, pinned_commit: 9bc8aaaaa18954c29c293828071aa4fdb50baf60, pinned_blob: 4dd8351050513652d90cf864e0bd5e8e0b31735d, license: MIT, review_basis: selective source review; broad code-quality scope is useful but collection-specific skill references and tooling assumptions require adaptation, permitted_agents: [eugene, w-dog, rook], dependencies: [], risks: [may duplicate normal technical review, recommends tools that may not be installed, collection-specific cross-skill names require remapping]}
 
   # AgentMail is capability supply, not an agent identity. These first-party skills
   # remain candidates until license verification, local acquisition/reference setup,

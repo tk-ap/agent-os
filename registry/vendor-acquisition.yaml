@@ -1,4 +1,4 @@
-version: 0.3.0
+version: 0.5.0
 status: plan-only
 activation_rule: Candidates remain non-executable until reviewed, adapted, validated, and explicitly marked approved in registry/skills.yaml.
 
@@ -18,6 +18,28 @@ sources:
     install_command: npx skills add agentmail-to/agentmail-skills
     role: first-party portable vendor source; select individual skills rather than installing AgentMail as an agent identity
     license: unresolved; no repository license file or searchable license declaration observed in the pinned snapshot, so verify before approval or vendoring
+  anti-slop-design-suite:
+    repository: miqdadbadjuber/anti-slop
+    pinned_commit: d9c341673ae28d3b8d0cab6ef6b968e49c72705c
+    release_observed: v3.2.3
+    role: specialist design, copy, human/accessibility, and mobile anti-slop capability supply; core concepts adapted into owned quality railguards rather than loaded wholesale
+    license: MIT
+    review: registry/source-reviews/anti-slop-sources-2026-09-02.md
+  anti-slop-code-audit:
+    repository: iuliandita/skills
+    pinned_commit: 9bc8aaaaa18954c29c293828071aa4fdb50baf60
+    release_observed: 1.45.1
+    role: polyglot code-quality anti-slop audit candidate for hallucinated APIs, over-abstraction, generic naming, duplication, defensive overkill, and test theater
+    license: MIT
+    review: registry/source-reviews/anti-slop-sources-2026-09-02.md
+  taste-skill:
+    repository: Leonxlnx/taste-skill
+    pinned_commit: ccbc15639c97057cbfcf32ecebc38ef716e4bb37
+    install_command: npx skills add Leonxlnx/taste-skill
+    website: https://www.tasteskill.dev/
+    role: frontend taste, redesign, visual-reference, brand, mobile-concept, and output-completeness capability supply; acquire selectively by task and product surface
+    license: MIT
+    review: registry/source-reviews/taste-skill-2026-09-02.md
   user-supplied-agent-skills-suite-2026-09-01:
     source_type: local-user-supplied-package
     review: registry/source-reviews/agent-skills-suite-2026-09-01.md
@@ -83,6 +105,139 @@ candidates:
     intended_scope: Vercel adapter only; deployment cost, performance, and runtime investigation
     proposed_agents: [eugene, ledger, w-dog]
     risk: broad skill with scripts and live-account assumptions; acquire only after adapter and dependency review
+    priority: p2
+
+  # Anti-slop specialist skills. The owned quality-railguards skill is active;
+  # these remain quarantined until Agent OS-specific adaptation and forward tests.
+  - id: antislop-ui
+    source: anti-slop-design-suite
+    path: skills/antislop-ui/SKILL.md
+    pinned_blob: 109eb85ad570b3c3ceb988e715e0aeb15c0b8f42
+    intended_scope: product UI/visual craftsmanship review after product-local art direction is established
+    proposed_agents: [designer, eugene, w-dog]
+    risk: upstream expects its core loaded alongside and includes numeric/design heuristics that must not become universal Agent OS aesthetics
+    priority: p1
+  - id: antislop-copywriting
+    source: anti-slop-design-suite
+    path: skills/antislop-copywriting/SKILL.md
+    pinned_blob: 84d8ffceebffb911d0703bded921a17c699c460d
+    intended_scope: public/product copy specificity, evidence, CTA clarity, and preservation of supplied voice
+    proposed_agents: [designer, steward, scout, zoie]
+    risk: upstream pattern bans can flatten deliberate voice if treated mechanically; preserve source-grounded specificity and product voice
+    priority: p1
+  - id: antislop-human
+    source: anti-slop-design-suite
+    path: skills/antislop-human/SKILL.md
+    pinned_blob: 028795128b9ddb3cdf9ff44373ddd553ed6596a0
+    intended_scope: interface contrast, focus, keyboard, states, and human usability craftsmanship
+    proposed_agents: [designer, eugene, w-dog, rook]
+    risk: script and environment assumptions require review; accessibility claims need real checks and must not be inferred from prose
+    priority: p1
+  - id: antislop-layoutmobile
+    source: anti-slop-design-suite
+    path: skills/antislop-layoutmobile/SKILL.md
+    pinned_blob: 7a143b17845a3f7ec839f63e2606fbee3f287eb4
+    intended_scope: responsive/mobile layout reflow, overflow, tap targets, navigation, spacing, and breakpoint review
+    proposed_agents: [designer, eugene, w-dog]
+    risk: heuristic breakpoints and sizing guidance must remain subordinate to rendered content-driven testing
+    priority: p0
+  - id: anti-slop-code-audit
+    source: anti-slop-code-audit
+    path: skills/anti-slop/SKILL.md
+    pinned_blob: 4dd8351050513652d90cf864e0bd5e8e0b31735d
+    intended_scope: post-implementation polyglot scan for hallucinated APIs, over-abstraction, generic naming, duplication, defensive overkill, dependency creep, comment noise, and test theater
+    proposed_agents: [eugene, w-dog, rook]
+    risk: source references collection-specific skills and optional mechanical tools; must remap skill names and forbid unapproved dependency installation
+    priority: p0
+
+  # Taste Skill capability supply. These entries are task-specific candidates, not
+  # a global frontend personality or blanket install. skill-resolution discovers
+  # them through this candidate plan; activation still requires registry/skills.yaml.
+  - id: taste-frontend-v2
+    source: taste-skill
+    path: skills/taste-skill/SKILL.md
+    pinned_blob: b72132fcd466da605623ffe96e370b3991fc5285
+    intended_scope: landing pages, portfolios, editorial/marketing surfaces, and public-shell redesigns after repository-local design direction is read
+    excluded_scope: [dashboards, data tables, multi-step product UI, protected application flows]
+    proposed_agents: [designer, eugene, w-dog]
+    risk: v2 is experimental and contains default framework/font/icon/design-system preferences; must remove universal stack choices and keep product art direction authoritative
+    priority: p0
+  - id: taste-redesign-existing-projects
+    source: taste-skill
+    path: skills/redesign-skill/SKILL.md
+    pinned_blob: c8304f0c9301385e3641b052d6b25b8af11cb6c1
+    intended_scope: audit-first redesign of existing sites/apps while preserving stack, routes, functionality, and explicit regression boundaries
+    proposed_agents: [designer, eugene, w-dog]
+    risk: upstream suggests automatic font swaps, invented realistic content, Picsum placeholders, and broad visual upgrades; must use real assets/source-grounded content and preserve approved product identity
+    priority: p0
+  - id: taste-output-completeness
+    source: taste-skill
+    path: skills/output-skill/SKILL.md
+    pinned_blob: d983bbcf040b6f433c624ce2212a2c044ad2da3c
+    intended_scope: bounded full-deliverable completeness checks before producer handoff; prevent skipped files/sections, TODO placeholders, and false completion
+    proposed_agents: [eugene, bill, designer, w-dog, router]
+    disposition: concepts-adapted-into-owned-quality-railguards
+    risk: host-specific continuation syntax and anti-brevity rules must not override higher-level communication or platform limits
+    priority: p0
+  - id: taste-image-to-code
+    source: taste-skill
+    path: skills/image-to-code-skill/SKILL.md
+    pinned_blob: d19f8de112252ea88724c540647cad85b7653d46
+    intended_scope: visually important website/portfolio work where generated or supplied visual references materially improve implementation fidelity
+    proposed_agents: [designer, eugene]
+    dependencies: [image-generation capability]
+    risk: upstream makes image generation mandatory and can over-generate one reference per section; adapt to evidence-driven image count and prioritize user-supplied assets/references
+    priority: p1
+  - id: taste-imagegen-frontend-web
+    source: taste-skill
+    path: skills/imagegen-frontend-web/SKILL.md
+    pinned_blob: 26b293b8d0088631c41ebefde4a650768d01cf22
+    intended_scope: pre-implementation website section concepts and art-direction references for public/marketing/editorial surfaces
+    proposed_agents: [designer]
+    dependencies: [image-generation capability]
+    risk: upstream mandates one separate image per section and fixed default counts; use minimum sufficient visual references and never treat generated image text as factual copy
+    priority: p1
+  - id: taste-imagegen-frontend-mobile
+    source: taste-skill
+    path: skills/imagegen-frontend-mobile/SKILL.md
+    pinned_blob: 9d8d55f3ca7a77e18329922ea8a67694dee52ebb
+    intended_scope: native/mobile-app concept screens and coherent flows when visual exploration reduces ambiguity
+    proposed_agents: [designer]
+    dependencies: [image-generation capability]
+    risk: image-only native-app direction must not substitute for rendered responsive-web testing; device mockup and screen-count defaults are optional
+    priority: p1
+  - id: taste-brandkit
+    source: taste-skill
+    path: skills/brandkit/SKILL.md
+    pinned_blob: d76399f666af97ac8c142928e02602d9732e78aa
+    intended_scope: non-production brand identity concept boards, logo directions, visual systems, and brand-world comparisons
+    proposed_agents: [designer, steward]
+    dependencies: [image-generation capability]
+    risk: generated marks are not trademark-clearance evidence; existing user-approved brand assets and strategy remain authoritative
+    priority: p1
+  - id: taste-soft-style
+    source: taste-skill
+    path: skills/soft-skill/SKILL.md
+    pinned_blob: 4038f41ec0137ec92e98ed0151fe3b7038b9329e
+    intended_scope: conditional style reference only when a brief explicitly asks for soft/premium/atmospheric UI
+    proposed_agents: [designer]
+    risk: aggressive font bans, double-bezel/card rules, floating-pill navigation, giant spacing, and mandatory motion can conflict with current product identities; never infer this style by default
+    priority: p2
+  - id: taste-minimalist-style
+    source: taste-skill
+    path: skills/minimalist-skill/SKILL.md
+    pinned_blob: 44ead27ef04ffe79ade0c6df7fd696dbcf7b246b
+    intended_scope: conditional style reference for explicitly requested restrained editorial/utilitarian minimalism
+    proposed_agents: [designer]
+    risk: fixed palettes, bento grids, font pairings, Picsum imagery, and animation prescriptions are aesthetic choices, not quality requirements
+    priority: p2
+  - id: taste-brutalist-style
+    source: taste-skill
+    path: skills/brutalist-skill/SKILL.md
+    pinned_blob: f5375b908340e1376ed391232a31c5d82d5babfb
+    intended_scope: conditional style reference for explicitly requested Swiss industrial, tactical, terminal, or brutalist visual language
+    proposed_agents: [designer]
+    risk: high-density/terminal aesthetics can overwhelm clarity and product continuity; never route merely because a product is technical or agent-related
     priority: p2
 
   # User-supplied suite is reference-only. It may inform owned capability design but
@@ -164,6 +319,15 @@ candidates:
     proposed_agents: [eugene, rook]
     risk: credential handling, external mutations, API drift, and destructive API-key rotation if agent sign-up is repeated
     priority: p1
+
+excluded_from_taste_skill_registration:
+  gpt-taste: blocked from runtime; reference-only. It mandates simulated Python randomization, AIDA structure, GSAP-heavy motion, static-interface prohibition, giant spacing, and other model-specific prescriptions that conflict with product-led design and minimum-sufficient selection.
+  taste-skill-v1: legacy fallback only; upstream recommends the v2 default unless v2 breaks a specific project.
+  stitch-design-taste: deferred until a Google Stitch or Stitch MCP workflow is actually bound to an Agent OS product/environment.
+
+excluded_from_anti_slop_registration:
+  antislop-core: reference-only for now; upstream says load always and contains install/user-mode flow that conflicts with Agent OS minimum-sufficient selection and centralized skill acquisition. Core principles were adapted into owned quality railguards.
+  antislop-code-comments: source skill is comment-only and overlaps the broader polyglot code-audit candidate; do not register separately unless a narrow comment-cleanup need appears.
 
 excluded_from_agentmail_registration:
   agentmail-cli: CLI-specific; acquire only for a runtime or operator environment that explicitly needs command-line setup or troubleshooting
