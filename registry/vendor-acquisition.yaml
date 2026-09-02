@@ -151,7 +151,8 @@ candidates:
     priority: p0
 
   # Taste Skill capability supply. These entries are task-specific candidates, not
-  # a global frontend personality or blanket install.
+  # a global frontend personality or blanket install. skill-resolution discovers
+  # them through this candidate plan; activation still requires registry/skills.yaml.
   - id: taste-frontend-v2
     source: taste-skill
     path: skills/taste-skill/SKILL.md
