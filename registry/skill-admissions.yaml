@@ -1,8 +1,9 @@
-version: 0.1.0
+version: 0.2.0
 status: contract-defined-not-runtime-enforced
 policy: policies/SKILL_TRUST_POLICY.md
 capability_schema: contracts/skill-capability.schema.json
 workflow: docs/security/SKILL_ADMISSION_WORKFLOW.md
+security_tools: registry/security-tools.yaml
 
 # This registry is intentionally separate from registry/skills.yaml.
 # skills.yaml answers "what capability may be selected?"
@@ -49,6 +50,13 @@ review_requirements:
     - review instruction safety and self-install/self-escalation attempts
     - define permitted agents and activation triggers
     - define revocation conditions
+  scanner_evidence_when_used:
+    - scan exact immutable quarantined material
+    - record scanner version/digest and scan mode
+    - retain structured findings or evidence reference
+    - review suppressions/baselines explicitly
+    - never treat low risk or safe_to_install as approval
+    - never let scanner evidence replace source inspection, capability declaration, sandboxing, independent review, or required human approval
   L0-reference: [domain-review]
   L1-local-read: [domain-review, rook-review]
   L2-local-write: [domain-review, rook-review, sandbox-forward-test]
