@@ -1,0 +1,48 @@
+version: 0.1.0
+status: candidate-only
+
+policy:
+  security_tool_output_is_evidence_not_authority: true
+  automatic_skill_approval: forbidden
+  immutable_input_preferred: true
+  production_credentials_for_initial_scan: forbidden
+  tool_must_pass_its_own_admission_before_runtime_binding: true
+
+tools:
+  skillspector:
+    source: NVIDIA/SkillSpector
+    pinned_commit: 7805bb94843d91cb9937f57264ca52642164499b
+    license: Apache-2.0
+    homepage: https://docs.nvidia.com/skills/scanning-agent-skills
+    role: pre-admission security scanner for quarantined agent-skill material
+    disposition: evaluate-before-integration
+    proposed_owner: rook
+    supporting_owner: eugene
+    initial_mode:
+      input: local immutable quarantined skill directory or artifact
+      analysis: static-only
+      llm: false
+      outbound_network: deny-after-source-capture
+      production_credentials: none
+    useful_outputs:
+      - structured findings for prompt injection and instruction abuse
+      - data-exfiltration and privilege-escalation signals
+      - supply-chain and dangerous-code findings
+      - MCP least-privilege and tool-poisoning findings
+      - JSON/SARIF evidence for admission records and CI
+      - baseline/fingerprint support for detecting new findings on re-scan
+    non_authority_rules:
+      - low risk score never auto-approves a skill
+      - safe_to_install never grants Agent OS authorization
+      - scanner suppressions require review and evidence
+      - static-only clean result must not be represented as semantic or sandbox clearance
+      - scanner findings do not replace full source/dependency inspection
+      - scanner findings do not replace capability declaration
+      - scanner findings do not replace adversarial sandbox tests
+      - scanner findings do not replace independent review or human approval where required
+    security_notes:
+      - SkillSpector itself contains executable Python and optional network/LLM/MCP modes, so integrating it is at least an L3 execution decision under the Agent OS trust model.
+      - Do not expose its unauthenticated HTTP MCP transport to a routable interface.
+      - Prefer local static scanning of already captured immutable content before enabling any LLM or live vulnerability lookup path.
+      - Pin the scanner version/digest used for every admission record so scanner drift is visible.
+    source_review: registry/source-reviews/skillspector-2026-09-02.md

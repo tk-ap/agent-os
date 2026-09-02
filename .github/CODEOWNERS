@@ -1,0 +1,14 @@
+# Agent OS root-of-trust ownership.
+# NOTE: CODEOWNERS only becomes an enforcement boundary when repository
+# branch/ruleset settings require CODEOWNER review for protected branches.
+
+/BOOTSTRAP.md @tk-ap
+/HOST_PROFILES.md @tk-ap
+/policies/ @tk-ap
+/registry/ @tk-ap
+/agents/ @tk-ap
+/contracts/ @tk-ap
+/skills/skill-resolver/ @tk-ap
+/skills/owned/authorization-policy/ @tk-ap
+/adapters/ @tk-ap
+/.github/ @tk-ap
