@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-os.local/contracts/continuity-grant.schema.json",
+  "title": "Ecosystem Continuity Grant",
+  "description": "User-controlled authorization for scoped context continuity between otherwise isolated products. Shared identity alone never grants cross-product data access.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "grant_id",
+    "ecosystem_user_id",
+    "source_product",
+    "destination_product",
+    "purpose",
+    "scopes",
+    "status",
+    "granted_by",
+    "granted_at",
+    "direct_database_access",
+    "provenance_required",
+    "user_reviewable",
+    "user_revocable"
+  ],
+  "properties": {
+    "grant_id": {"type": "string", "minLength": 1},
+    "ecosystem_user_id": {"type": "string", "minLength": 1},
+    "source_product": {"type": "string", "minLength": 1},
+    "destination_product": {"type": "string", "minLength": 1},
+    "purpose": {"type": "string", "minLength": 1},
+    "scopes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "exchange_mode": {
+      "enum": ["signed-snapshot", "scoped-api-reference"],
+      "default": "signed-snapshot"
+    },
+    "persistence": {
+      "enum": ["ephemeral", "snapshot-until-revoked", "durable-with-provenance"],
+      "default": "snapshot-until-revoked"
+    },
+    "status": {"enum": ["active", "revoked", "expired"]},
+    "granted_by": {"const": "user"},
+    "granted_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "revoked_at": {"type": "string", "format": "date-time"},
+    "revocation_reason": {"type": "string"},
+    "direct_database_access": {"const": false},
+    "provenance_required": {"const": true},
+    "user_reviewable": {"const": true},
+    "user_revocable": {"const": true},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}
