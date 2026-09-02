@@ -19,6 +19,44 @@ Apply these railguards when an agent creates or materially changes:
 
 Use the minimum relevant checks. Do not load every specialist quality skill for every task.
 
+## Two-Phase Quality Model
+
+Quality control has two distinct phases.
+
+### Phase 1 — production guardrails
+
+While producing the work, apply only the hard preventative constraints needed to avoid known invalid states: do not fabricate, do not create knowingly dead shippable interactions, do not silently violate authorization/security boundaries, do not substitute placeholders for explicitly required complete deliverables, and do not knowingly overwrite protected product direction.
+
+Do not make the producer carry every taste heuristic, optional style recipe, or post-hoc cleanup rule while solving the primary task. Excessive concurrent review context can degrade implementation quality and encourage rule-following over product judgment.
+
+### Phase 2 — bounded post-production inspection
+
+After the producer has completed the bounded implementation and run the relevant functional/mechanical checks, run the full quality-railguard inspection against the changed scope.
+
+The inspection exists to find slop that survived production. It is not permission to reopen product strategy, redesign unrelated surfaces, or expand the task.
+
+Default sequence:
+
+`task → produce → functional/mechanical check → anti-slop inspection → minimal correction → diff review → end-to-end verification when applicable → human/owner acceptance`
+
+## Preserve Contract
+
+Before a post-production anti-slop inspection can modify work, define what must be preserved.
+
+Unless the task explicitly authorizes otherwise, preserve:
+
+- intended behavior and accepted product outcome;
+- repository-local product direction and visual/interaction language;
+- facts, examples, source-grounded claims, and evidence;
+- accepted architecture and ownership boundaries;
+- public voice and intentionally chosen terminology;
+- protected regression boundaries, routes, assets, data contracts, and integrations;
+- security, authorization, validation, observability, and failure-handling boundaries.
+
+The inspection may change only what falls inside the authorized changed scope and is justified by a concrete quality finding, such as unnecessary abstraction, generic wording, redundant structure, comment noise, unsupported fallback expansion, duplicate generated patterns, incomplete requested output, or unmotivated UI treatment.
+
+If a proposed cleanup would alter preserved behavior or direction, classify it as a separate product/technical decision rather than an anti-slop fix.
+
 ## Hard Gates
 
 Work is not ready for delivery when any applicable gate fails:
@@ -68,15 +106,17 @@ Preserve intentional voice. Do not flatten every product into one house style.
 
 ### Code and implementation
 
+Inspect the changed code first. Search adjacent same-role code only when needed to determine whether a new helper, type, abstraction, dependency, or implementation duplicates something that already exists.
+
 Inspect for:
 
 - hallucinated or stale APIs/configuration;
-- unnecessary abstraction and forwarding wrappers;
+- a new abstraction with one caller or one concrete implementation that adds no meaningful boundary;
 - generic naming that hides domain meaning;
 - duplicated near-twin logic created by context-free generation;
 - defensive fallback layers that conceal uncertainty instead of failing clearly at the right boundary;
 - noisy comments that narrate obvious code;
-- dependencies or files added without material value;
+- dependencies, platform support, files, configuration, or fallback behavior added without being requested or materially required;
 - tests that only ratify the implementation rather than challenge behavior;
 - incomplete requested implementation hidden behind placeholders or omitted sections.
 
@@ -89,19 +129,39 @@ Before a meaningful artifact is called done:
 1. Read the repository/product direction and acceptance criteria.
 2. For visual work, record the product-specific design read before choosing any style recipe or specialist design skill.
 3. Count bounded requested deliverables when completeness is material.
-4. Run available mechanical checks that already belong to the repository.
-5. Apply `skills/owned/quality-railguards/SKILL.md` to the changed scope.
-6. Load only an approved specialist anti-slop/taste skill when it adds material value beyond the owned railguard.
-7. Fix blockers and clearly justified quality failures; do not churn subjective preferences.
-8. Compose with `skills/owned/end-to-end-verification/SKILL.md` when the promise crosses runtime, deployment, UI, data, authorization, or integration boundaries.
-9. Capture evidence and classify the result as `pass`, `partial`, `failed`, or `blocked`.
-10. When aesthetic or experiential acceptance is materially subjective, preserve a human acceptance gate. Automated anti-slop/taste review cannot certify taste.
+4. Produce the bounded implementation while applying only applicable hard preventative gates.
+5. Run available functional/mechanical checks that already belong to the repository.
+6. Freeze the preserve contract and changed scope for inspection.
+7. Apply `skills/owned/quality-railguards/SKILL.md` as a post-production inspection of the changed scope.
+8. Load only an approved specialist anti-slop/taste skill when it adds material value beyond the owned railguard.
+9. Fix blockers and clearly justified quality failures; do not churn subjective preferences or redesign unrelated work.
+10. Review the resulting diff to confirm the correction did not violate the preserve contract or expand scope.
+11. Compose with `skills/owned/end-to-end-verification/SKILL.md` when the promise crosses runtime, deployment, UI, data, authorization, or integration boundaries.
+12. Capture evidence and classify the result as `pass`, `partial`, `failed`, or `blocked`.
+13. When aesthetic or experiential acceptance is materially subjective, preserve a human acceptance gate. Automated anti-slop/taste review cannot certify taste.
 
 ## Producer / Inspector Rule
 
-The producer performs the first quality-railguard self-check before handing work to an inspector. An independent inspector is warranted only when it materially reduces risk or supplies missing evidence.
+The producer is responsible for hard preventative gates during implementation and a basic self-check for obvious defects. The full anti-slop inspection is a distinct post-production pass after the bounded implementation exists.
 
-Inspectors report violated acceptance criteria, concrete evidence, and the smallest actionable correction. They must not turn anti-slop into an unbounded preference loop.
+The inspector receives the preserve contract, changed scope/diff, acceptance criteria, and relevant product direction. The inspector does not receive blanket authority to redesign the feature or clean the repository.
+
+An independent inspector is warranted only when it materially reduces risk or supplies missing evidence. Inspectors report violated acceptance criteria, concrete evidence, and the smallest actionable correction. They must not turn anti-slop into an unbounded preference loop.
+
+## Quality Learning Loop
+
+Quality review should become more specific to the workforce over time without allowing the system to rewrite its own rules autonomously.
+
+For meaningful anti-slop inspections, record when useful:
+
+- `useful-catch` — the railguard found a real defect that was accepted and corrected;
+- `false-positive` — a finding was intentionally rejected because the pattern served the product or was otherwise justified;
+- `missed-issue` — a later human/reviewer finding should reasonably have been caught by the railguard;
+- `reverted-correction` — an anti-slop correction was later undone because it degraded behavior, clarity, voice, design, or maintainability.
+
+Use repeated evidence, not one-off taste disagreements, to evolve the owned quality model. Repeated useful catches may justify strengthening or adding an owned rule. Repeated false positives or reverted corrections may justify narrowing or removing one.
+
+Rule changes require normal Agent OS review/version control. A quality skill must never self-modify, silently promote a vendor heuristic into policy, or infer a universal preference from a single acceptance/rejection event.
 
 ## External Skill Boundary
 
