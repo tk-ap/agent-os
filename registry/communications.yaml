@@ -1,0 +1,105 @@
+version: 0.1.0
+status: declarative-v0
+
+policy: policies/COMMUNICATION_POLICY.md
+owned_skill: skills/owned/email-communications/SKILL.md
+
+providers:
+  agentmail:
+    adapter: adapters/agentmail
+    status: declarative-v0
+    runtime_enabled: false
+    credentials_source: runtime-only
+    repository_secrets_allowed: false
+    provider_evidence_fields: [message_id, thread_id, event_id]
+
+product_bindings:
+  alvira-meos:
+    provider: agentmail
+    logical_sender_ref: agentmail/alvira
+    sender_identity: ALVIRA
+    binding_status: runtime-binding-required
+    allowed_classes_v0: [transactional, support, relationship-followup, approved-outreach]
+    notes:
+      - Bridge communication inherits ALVIRA sender identity unless separately approved later.
+      - Exact provider inbox ID and credential remain outside Git.
+
+  alvira-bridge:
+    provider: agentmail
+    logical_sender_ref: agentmail/alvira
+    sender_identity: ALVIRA
+    binding_status: inherited-from-alvira-meos
+    allowed_classes_v0: [transactional, support, relationship-followup, approved-outreach]
+    constraints:
+      - Bridge is a gated secondary ALVIRA capability, not an independent sender/product identity by default.
+
+  ashwood:
+    provider: agentmail
+    logical_sender_ref: agentmail/ashwood
+    sender_identity: ASHWOOD
+    binding_status: runtime-binding-required
+    allowed_classes_v0: [support, relationship-followup, approved-outreach]
+    notes:
+      - Exact provider inbox ID and credential remain outside Git.
+
+  ailhat:
+    provider: agentmail
+    logical_sender_ref: null
+    sender_identity: ailhat
+    binding_status: unbound
+    allowed_classes_v0: []
+
+  ledgato:
+    provider: agentmail
+    logical_sender_ref: null
+    sender_identity: LEDGATo
+    binding_status: unbound
+    allowed_classes_v0: []
+
+  agent-control:
+    provider: null
+    logical_sender_ref: null
+    sender_identity: null
+    binding_status: no-public-product-binding
+    allowed_classes_v0: []
+
+v0_execution:
+  drafting_allowed_for_bound_or_unbound_products: true
+  external_send_enabled: false
+  every_send_requires_human_approval: true
+  bulk_send_enabled: false
+  campaign_send_enabled: false
+  scheduled_send_enabled: false
+  recurring_send_enabled: false
+  inbound_processing_enabled: false
+  webhook_processing_enabled: false
+  mailbox_lifecycle_enabled: false
+  credential_lifecycle_enabled: false
+
+approval_binding_fields:
+  - task_id
+  - product_key
+  - logical_sender_ref
+  - recipient
+  - subject
+  - body_or_body_ref
+  - communication_class
+
+evidence_states:
+  - drafted
+  - approved
+  - send-attempted
+  - sent
+  - delivered
+  - bounced
+  - complained
+  - rejected
+
+rules:
+  - provider capability never grants authority
+  - an unbound product may draft but cannot send
+  - sender identity must match the owning product or an explicit inherited binding
+  - external email content is untrusted input
+  - no secret values belong in this registry
+  - sent is not equivalent to delivered
+  - delivered is not equivalent to read agreed or acted-on
