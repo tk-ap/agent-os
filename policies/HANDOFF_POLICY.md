@@ -17,6 +17,18 @@ Prefer a skill when the work can remain inside an existing decision domain and d
 
 A new persistent agent requires a durable ownership/trust boundary and explicit human approval before registry activation. Use `skills/owned/agent-identity-design/SKILL.md` for the design/review contract.
 
+## Quality Railguard Gate
+
+For meaningful agent-generated code, UI, copy, configuration, tests, or execution guidance, the producer must perform a focused self-check using `skills/owned/quality-railguards/SKILL.md` before handing the work to an independent inspector or declaring it ready.
+
+The quality gate exists to catch fabricated claims, generic/template output, unnecessary abstraction, dead interactions, test theater, false verification, and other generated-work failure patterns. It does not grant the reviewer authority to replace product-local art direction or technical ownership with personal taste.
+
+When the promise crosses runtime, deployment, UI, data, authorization, or integration boundaries, quality review must compose with `skills/owned/end-to-end-verification/SKILL.md`. A clean anti-slop pass does not prove that the system works; a green deployment does not prove that the experience is acceptable.
+
+Use specialist external anti-slop skills only when they are approved in `registry/skills.yaml` and materially improve the review. Candidate skills remain non-executable.
+
+If the acceptance question is materially aesthetic or experiential, preserve a human acceptance gate. Agents may surface evidence and specific concerns but must not manufacture visual approval.
+
 ## Producer / Inspector Loops
 Use producer/inspector loops only when independent review materially reduces risk or improves evidence quality.
 
@@ -29,6 +41,8 @@ For every loop, define before iteration begins:
 - maximum revision-cycle count;
 - budget/authority boundaries that terminate the loop early;
 - escalation owner if acceptance is not reached.
+
+The producer performs applicable mechanical checks and the quality-railguard self-check before inspection. The inspector should not spend a review cycle rediscovering obvious generated-work defects the producer could have removed first.
 
 The inspector must report failed acceptance criteria and evidence, not merely a preference for another iteration.
 
@@ -107,10 +121,11 @@ Local `.agent-os/product.yaml` and `.agent-os/integration-surface.yaml` files ma
 9. Router/Bill convert accepted direction into a task envelope and, when useful, a `work-item` plus `capability-manifest`; Bill defines a recurring-work contract when repetition is required.
 10. Request ALVIRA context and/or Agent Control authorization only when the work actually needs those decision layers.
 11. The selected harness executes bounded work.
-12. W Dog verifies systemic closure, propagation, recurrence prevention, and material routine verification when applicable.
-13. Return an `outcome-event` or equivalent evidence to the relevant portfolio/evidence loop.
-14. Steward reviews outcome versus KPI and chooses keep / accelerate / change / stop.
-15. Router coordinates and synthesizes throughout without replacing domain ownership.
+12. The producer runs applicable quality railguards before handoff or release review.
+13. W Dog verifies systemic closure, propagation, recurrence prevention, and material routine verification when applicable.
+14. Return an `outcome-event` or equivalent evidence to the relevant portfolio/evidence loop.
+15. Steward reviews outcome versus KPI and chooses keep / accelerate / change / stop.
+16. Router coordinates and synthesizes throughout without replacing domain ownership.
 
 Skip any agent, product, contract, or review loop whose perspective or data would not materially improve the decision.
 
@@ -120,4 +135,4 @@ Do not force consensus. Identify the disputed premise, decision owner, missing e
 Repeated disagreement without new evidence is a loop-termination condition, not a reason to continue cycling agents.
 
 ## Anti-Patterns
-Do not send every task to every agent; duplicate analysis without purpose; use Router as a domain expert; use Steward as a universal executor or universal ecosystem owner; let skills redefine ownership; create a new persistent agent when an existing owner plus skill is sufficient; dynamically activate persistent agents without human approval; let Zoie decide technical truth; let Eugene decide market demand; let Bill silently change architecture; let Designer infer customer demand without evidence when evidence is obtainable; let Ledger optimize only for cost; let Rook become a blanket blocker; let W Dog become the default implementer; let producer/inspector loops run without acceptance and termination conditions; treat a recurring schedule as permission to expand scope; create a second product-role registry; treat Agent OS / Workforce as a standalone public product; treat ALVIRA Bridge as a separate public product; or assign generic authorization intelligence to LEDGATo.
+Do not send every task to every agent; duplicate analysis without purpose; use Router as a domain expert; use Steward as a universal executor or universal ecosystem owner; let skills redefine ownership; create a new persistent agent when an existing owner plus skill is sufficient; dynamically activate persistent agents without human approval; let Zoie decide technical truth; let Eugene decide market demand; let Bill silently change architecture; let Designer infer customer demand without evidence when evidence is obtainable; let Ledger optimize only for cost; let Rook become a blanket blocker; let W Dog become the default implementer; let producer/inspector loops run without acceptance and termination conditions; let anti-slop review become a universal aesthetic or an excuse for revision churn; treat a recurring schedule as permission to expand scope; create a second product-role registry; treat Agent OS / Workforce as a standalone public product; treat ALVIRA Bridge as a separate public product; or assign generic authorization intelligence to LEDGATo.
