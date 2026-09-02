@@ -72,3 +72,7 @@ Disposition: **candidate security tool; evaluate before integration**.
 Usefulness is high enough to place it in the Phase 2 admission-tool shortlist. Runtime activation waits until SkillSpector itself passes the Agent OS zero-trust process and the host can enforce its declared capabilities.
 
 Every future scan result should record the exact scanner version/digest and scan mode so static-only evidence cannot be confused with semantic or sandbox clearance.
+
+Intended order:
+
+`capture immutable candidate -> quarantine -> optional SkillSpector evidence -> manual complete-source inspection -> capability declaration -> risk classification -> adversarial sandbox -> independent approval -> pin/activate narrowly`
