@@ -1,6 +1,6 @@
 ---
 name: quality-railguards
-description: Prevent generic, fabricated, overbuilt, superficially verified, or machine-sloppy work before delivery. Use for AI-heavy code, UI, copy, implementation, and release-quality self-checks.
+description: Prevent generic, fabricated, overbuilt, incomplete, superficially verified, or machine-sloppy work before delivery. Use for AI-heavy code, UI, copy, implementation, and release-quality self-checks.
 ---
 
 # Quality Railguards
@@ -9,7 +9,7 @@ description: Prevent generic, fabricated, overbuilt, superficially verified, or 
 
 Run a focused anti-slop quality pass without replacing product direction, technical review, security review, or end-to-end verification.
 
-The goal is not to make everything minimal or stylistically uniform. The goal is to make generated work intentional, specific, grounded, proportionate, and honestly verified.
+The goal is not to make everything minimal or stylistically uniform. The goal is to make generated work intentional, specific, grounded, proportionate, complete, and honestly verified.
 
 Read `policies/QUALITY_RAILGUARDS.md` before applying this skill.
 
@@ -21,6 +21,7 @@ Use this skill when:
 - work technically functions but feels generic, bloated, performative, or oddly overengineered;
 - UI/copy needs a pre-delivery specificity and craftsmanship pass;
 - code needs a check for hallucinated APIs, noisy abstractions, generic naming, duplicate generated patterns, or test theater;
+- a requested complete artifact may contain skipped sections, placeholder code, or implied-but-undelivered work;
 - a release is about to be declared complete;
 - a prior attempt produced no-op changes, disconnected UI, placeholder interactions, false verification, or repeated patches without root improvement.
 
@@ -43,6 +44,8 @@ Compose with the appropriate owner/skill instead of stretching anti-slop beyond 
 
 Read the active task, acceptance criteria, repository-local instructions, product art direction, protected regression boundaries, and changed files/artifacts.
 
+For visual work, derive a concise design read from the actual product, audience, existing assets, and user references before applying any aesthetic recipe. Existing brand/type/interaction direction is evidence, not optional inspiration.
+
 State the actual review scope. Default to changed work, not a gratuitous whole-repository cleanup.
 
 ### 2. Classify the artifact
@@ -54,6 +57,7 @@ Select only the applicable dimensions:
 - `code-implementation`
 - `tests-verification`
 - `docs-execution-guidance`
+- `deliverable-completeness`
 
 Do not run irrelevant specialist checks.
 
@@ -70,9 +74,12 @@ Check for:
 - product-local direction being overwritten by generic taste;
 - responsive/accessibility/failure states ignored when they are part of the promise;
 - security or validation removed merely for brevity;
-- no-op commits or revision churn that do not change the failing behavior.
+- no-op commits or revision churn that do not change the failing behavior;
+- requested full files, components, sections, or deliverables replaced by `TODO`, `...`, placeholder comments, skipped middle sections, or prose that merely describes missing implementation.
 
 Any applicable hard-gate failure blocks a clean pass.
+
+If a platform/output boundary genuinely prevents complete delivery, report the exact partial state and remaining deliverables. Do not label the work complete.
 
 ### 4. Inspect for generated-work slop
 
@@ -93,15 +100,17 @@ Do not flag justified framework conventions, external-boundary validation, secur
 
 ### 5. Decide whether a specialist skill is worth the context
 
-Use `skill-resolution` and load only an approved specialist skill when it materially improves this review. Candidate external anti-slop skills are non-executable until separately approved and pinned.
+Use `skill-resolution` and load only an approved specialist skill when it materially improves this review. Candidate external anti-slop/taste skills are non-executable until separately approved and pinned.
 
-Possible specialist domains include UI, copywriting, human/accessibility, mobile layout, and polyglot code-quality auditing.
+Possible specialist domains include UI, copywriting, human/accessibility, mobile layout, visual-reference generation, brand exploration, redesign audit, and polyglot code-quality auditing.
+
+Do not load multiple overlapping style recipes merely to create variance. Pick the minimum capability that matches the brief.
 
 ### 6. Report findings without preference theater
 
 Classify findings as:
 
-- `BLOCKER` — violates truth, working behavior, explicit acceptance, security boundary, or evidence integrity;
+- `BLOCKER` — violates truth, working behavior, explicit acceptance, security boundary, evidence integrity, or promised completeness;
 - `FIX` — concrete quality defect with a clear improvement;
 - `CONSIDER` — legitimate judgment call; do not change without a reason;
 - `ACCEPTABLE` — pattern reviewed and intentionally retained.
@@ -112,7 +121,7 @@ Collapse repeated instances into one finding when they share the same cause.
 
 ### 7. Fix the minimum sufficient set
 
-Prefer deletion, simplification, specificity, or a direct correction over adding another abstraction or review layer.
+Prefer deletion, simplification, specificity, completion, or a direct correction over adding another abstraction or review layer.
 
 Do not create cleanup work outside the authorized scope merely because adjacent code could be prettier.
 
@@ -133,16 +142,19 @@ Return:
 - specialist skills used, if any;
 - changes made;
 - verification evidence;
+- requested-deliverable count and completed count when completeness is material;
 - final state: `pass`, `partial`, `failed`, or `blocked`;
 - human acceptance still required, when applicable.
 
 ## Rules
 
-- Product-specific direction beats generic anti-slop taste.
+- Product-specific direction beats generic anti-slop or Taste Skill preferences.
 - Never ban a technique solely because it is common.
 - Never invent evidence to make a quality report look complete.
 - Never call a visual/mobile/runtime state verified without actually checking that state.
 - Never remove security or external-boundary validation solely to reduce code volume.
 - Never turn quality review into an unbounded producer/inspector loop.
-- Never load all anti-slop skills by default.
+- Never load all anti-slop or taste skills by default.
+- Never substitute placeholders or omitted implementation for a requested complete deliverable and still call it done.
+- Image-first design is optional and task-driven; user-provided references and real assets outrank generated references.
 - Prefer one concrete correction over another layer of abstraction.
