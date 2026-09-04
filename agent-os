@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+
+command="${1:-help}"
+case "$command" in
+  doctor)
+    exec python -m runtime.doctor
+    ;;
+  run)
+    shift
+    if [[ $# -lt 1 ]]; then
+      echo 'Usage: ./agent-os run "task description"' >&2
+      exit 2
+    fi
+    exec python -m runtime.cli "$@"
+    ;;
+  serve)
+    shift || true
+    exec python -m runtime.server --host 127.0.0.1 --port 8787 "$@"
+    ;;
+  help|-h|--help)
+    cat <<'EOF'
+Agent OS local console
+
+Commands:
+  ./agent-os doctor                 Check host + LLM-adjacent readiness
+  ./agent-os run "task"             Run the governed task pipeline
+  ./agent-os serve                  Start local Task API on 127.0.0.1:8787
+EOF
+    ;;
+  *)
+    echo "Unknown command: $command" >&2
+    echo "Run ./agent-os help" >&2
+    exit 2
+    ;;
+esac
