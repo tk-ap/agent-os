@@ -6,6 +6,8 @@ import socket
 import subprocess
 from pathlib import Path
 
+from runtime.harness import codex_auto_review_enabled
+
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_HOSTNAME = "ashwood-host-01"
 HARNESSES = ("codex", "claude", "opencode")
@@ -75,6 +77,7 @@ def report():
     harnesses = {name: _command(name) for name in HARNESSES}
     providers = {name: _command(name) for name in PROVIDERS}
     secret_like = _tracked_secret_like_paths() if git_ok else []
+    codex_auto_review = codex_auto_review_enabled() if harnesses["codex"] else False
 
     checks = {
         "linux_host": platform.system() == "Linux",
@@ -86,6 +89,8 @@ def report():
         "agent_os_repo": bool(repo_root and Path(repo_root).resolve() == ROOT.resolve()),
         "no_tracked_secret_like_paths": not secret_like,
         "llm_harness_available": any(harnesses.values()),
+        "codex_integrated_harness_available": harnesses["codex"],
+        "codex_human_escalation_boundary": harnesses["codex"] and not codex_auto_review,
     }
 
     required = (
@@ -98,6 +103,8 @@ def report():
         "agent_os_repo",
         "no_tracked_secret_like_paths",
         "llm_harness_available",
+        "codex_integrated_harness_available",
+        "codex_human_escalation_boundary",
     )
     ready = all(checks[key] for key in required)
 
@@ -116,12 +123,18 @@ def report():
             "local_task_db_exists": (ROOT / ".agent-os" / "tasks.db").exists(),
         },
         "harnesses": harnesses,
+        "integrated_harness": {
+            "name": "codex",
+            "mode": "interactive-read-only",
+            "auto_review_detected": codex_auto_review,
+        },
         "providers": providers,
         "checks": checks,
         "tracked_secret_like_paths": secret_like,
         "notes": [
             "Magnitude is optional and experimental; absence does not fail the host.",
-            "At least one approved LLM harness is required for Host v1 readiness.",
+            "Codex is the first integrated Host v1 harness; Claude and OpenCode remain detected candidates.",
+            "Host v1 refuses Codex auto-review because sandbox escalation must remain human-approved.",
             "Doctor does not test or grant production, deployment, or sudo authority.",
         ],
     }
