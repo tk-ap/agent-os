@@ -47,13 +47,19 @@ After this adapter is pulled to the host:
 ./agent-os doctor
 ```
 
-reports host, GitHub, workspace, harness, provider, and local-state readiness without printing secrets.
+reports host, GitHub, workspace, harness, provider, and local-state readiness without printing secrets. Host v1 also checks that the integrated Codex path does not have `approvals_reviewer = "auto_review"` enabled, because sandbox escalation must remain human-approved.
+
+```bash
+./agent-os inspect "Explain the Agent OS authorization boundary"
+```
+
+routes an explicit read-only inspection through Agent OS and launches Codex with a read-only sandbox and `on-request` approval policy. General questions are narrowed to inspection; implementation language is not silently downgraded and instead remains behind `HUMAN_GATE`.
 
 ```bash
 ./agent-os run "inspect ailhat"
 ```
 
-runs the current governed Agent OS task pipeline.
+runs the current deterministic governed Agent OS task pipeline without invoking an LLM.
 
 ```bash
 ./agent-os serve
@@ -65,7 +71,7 @@ starts the local Task API on `127.0.0.1:8787` only.
 
 Host v1 separates **harness** from **inference provider**.
 
-A harness may be Codex, Claude Code, OpenCode, or another approved executor. Its provider may be a remote API-backed model or a local inference service. The same Agent OS task and policy semantics must survive provider changes.
+Codex is the first integrated harness path for Host Pilot 01. It is deliberately limited to interactive, read-only inspection. Claude Code and OpenCode remain detected candidate harnesses until separately integrated and tested. A harness provider may be remote or local, but the same Agent OS task and policy semantics must survive provider changes.
 
 Magnitude is registered here only as an **experimental local inference provider candidate**. It is optional, not automatically installed, and never grants tool or target authority. On constrained hardware, local-model use should be based on measured host capability rather than assumed adequacy.
 
@@ -76,7 +82,9 @@ Host Pilot 01 is successful only when the workstation can:
 1. identify itself and the Agent OS checkout;
 2. authenticate to GitHub through host-level credentials;
 3. keep local task/runtime state outside version control;
-4. expose at least one usable LLM harness path;
+4. expose at least one Agent OS-mediated, usable LLM harness path;
 5. preserve explicit human authorization boundaries;
 6. support interruption, inspection, verification, and evidence;
 7. remain portable to another host without rewriting core Agent OS policy.
+
+Mutating LLM execution is intentionally outside Host v1. A future implementation path must preserve task classification, explicit human authorization, bounded workspace-write permissions, verification, and evidence before it can be enabled.
