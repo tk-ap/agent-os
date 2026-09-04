@@ -9,6 +9,14 @@ case "$command" in
   doctor)
     exec python -m runtime.doctor
     ;;
+  inspect)
+    shift
+    if [[ $# -lt 1 ]]; then
+      echo 'Usage: ./agent-os inspect "read-only task"' >&2
+      exit 2
+    fi
+    exec python -c 'import sys; from runtime.harness import run_codex_inspection; raise SystemExit(run_codex_inspection(" ".join(sys.argv[1:])))' "$@"
+    ;;
   run)
     shift
     if [[ $# -lt 1 ]]; then
@@ -27,8 +35,12 @@ Agent OS local console
 
 Commands:
   ./agent-os doctor                 Check host + LLM-adjacent readiness
-  ./agent-os run "task"             Run the governed task pipeline
+  ./agent-os inspect "task"          Run a governed read-only Codex inspection
+  ./agent-os run "task"              Run the deterministic governed task pipeline
   ./agent-os serve                  Start local Task API on 127.0.0.1:8787
+
+Host v1 intentionally allows only read-only LLM inspection through `inspect`.
+Mutating LLM execution remains behind a future explicit human-gated implementation path.
 EOF
     ;;
   *)
