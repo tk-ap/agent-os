@@ -145,6 +145,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(409, {"error": "Task is not awaiting human authorization", "status": task["status"]})
                 task = _authorize(task)
                 status = _status(task)
+                task["status"] = status
                 store.save(task_id, task, status, event="AUTHORIZED")
                 return self._send(200, task)
         except (ValueError, TypeError, KeyError) as exc:

@@ -1,0 +1,5 @@
+
+# Local Agent OS runtime state
+.agent-os/tasks.db
+__pycache__/
+*.py[cod]
