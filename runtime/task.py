@@ -30,10 +30,15 @@ class Task:
 
 def normalize(request: str) -> Task:
     text = request.lower()
-    if any(x in text for x in ["inspect", "check", "audit", "review", "broken", "status", "diagnose"]):
-        task_class = "inspection"
-    elif any(x in text for x in ["implement", "build", "fix", "change", "code", "deploy"]):
+
+    # Action verbs take precedence over words describing the condition.
+    # For example, "fix the broken mobile navigation" is an implementation
+    # task, while "inspect the broken mobile navigation" is an inspection.
+    if any(x in text for x in ["implement", "build", "fix", "change", "code", "deploy"]):
         task_class = "implementation"
+    elif any(x in text for x in ["inspect", "check", "audit", "review", "broken", "status", "diagnose"]):
+        task_class = "inspection"
     else:
         task_class = "general"
+
     return Task(request=request, task_class=task_class)
