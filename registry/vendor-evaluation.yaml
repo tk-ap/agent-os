@@ -1,0 +1,152 @@
+version: 0.1.0
+status: active
+contract: contracts/vendor-evaluation.schema.json
+
+purpose: >
+  Governed evaluation of external products and services that are not skills.
+  Capability acquisition is already governed by registry/vendor-acquisition.yaml;
+  this lane closes the equivalent gap for SaaS products, APIs, model and inference
+  providers, and paid tools, so that "should we use X?" produces a filed decision
+  with evidence instead of remaining conversational.
+
+authority_rule: >
+  An evaluation records a decision and its evidence. It never grants execution,
+  spend, integration, or data-sharing authority. Adoption requires a work item
+  owned by the consuming product plus explicit human ratification.
+
+scope:
+  in_scope:
+    - hosted products and SaaS
+    - APIs and inference/model providers
+    - paid developer tools and services
+    - free tiers and bring-your-own-key products
+  out_of_scope:
+    - skills and skill sources — use registry/vendor-acquisition.yaml
+    - agent identities — use skills/owned/agent-identity-design/SKILL.md
+    - hosts and harnesses — these are replaceable execution environments, not vendor adoptions
+
+ownership:
+  proposes: ailhat
+  decides: steward, within delegated authority per policies/AUTONOMY_POLICY.md
+  ratifies_adoption: human product owner
+  consuming_products: named per evaluation in evaluated_for
+  note: >
+    ailhat owns portfolio intelligence and may propose. Agent OS holds the contract
+    and the record. Neither may adopt a vendor on behalf of a consuming product.
+
+decision_states:
+  declined: not suitable; record the reason so the question is not reopened without new evidence
+  tracked: relevant as a comparable or future option; no build, no integration, revisit at review_by
+  proposed-work: the evaluation produced a work item; the work item, not the evaluation, carries intent
+  adopted: in use by at least one product, under an authorized work item and human ratification
+  superseded: replaced by a later evaluation; set superseded_by
+
+rules:
+  - Check the capability floor before price. A vendor that cannot meet the concrete
+    requirement of the named use is disqualified regardless of cost.
+  - Quote the vendor's own language rather than paraphrasing it, so market language
+    is discovered rather than assumed.
+  - Record operating_status as observed. When external state cannot be read or
+    confirmed, it is unknown — never inferred as dormant or shut-down from indirect
+    signals such as a stale feature list.
+  - State whether the need is already met by owned tooling before considering adoption.
+  - A decline is a filed answer with evidence, not silence.
+  - Do not add a vendor to a product surface that has unresolved defects of its own.
+  - Cost substitution is not a reason to adopt when the substituted capability is the
+    product's value.
+  - Re-review tracked entries at review_by; an expired review is a stale decision, not a standing one.
+
+evaluations:
+  - evaluation_id: gooseai-2026-09-05
+    vendor:
+      name: GooseAI
+      url: https://goose.ai/
+      category: inference provider
+      operator: Joint Venture by CoreWeave and Anlatan
+      pricing: per-request, $0.000110 (GPT-Neo 1.3B) to $0.002650 (GPT-NeoX 20B)
+    proposing_product: ailhat
+    evaluated_for: [alvira-meos]
+    decision: declined
+    decision_rationale: >
+      Fails the capability floor for ALVIRA's AI paths before price is considered.
+      The published lineup is GPT-Neo 1.3B, GPT-J 6B, Fairseq 13B and GPT-NeoX 20B,
+      which cannot reliably hold structured JSON output or resist prompt injection.
+      ALVIRA's src/routes/-extractor.ts depends on response_format json_object and
+      carries an explicit injection defence over untrusted uploaded documents.
+      The offer is cost substitution, but compiled Context files are the product,
+      so extraction quality is the value rather than inference price.
+    operating_status: unknown
+    vendor_claims:
+      - "NLP-as-a-Service"
+      - "feature parity with industry standard APIs"
+      - "at 30% the cost"
+      - '"Coming Soon" — question-answering and classification'
+    evidence:
+      - kind: vendor-site
+        observed_on: 2026-09-05
+        finding: >
+          Active signup form and no shutdown notice, but a 2021-2022 model lineup and
+          unshipped roadmap items. Recorded as unknown rather than inferred dormant.
+    capability_floor:
+      structured_output: response_format json_object, required by -extractor.ts
+      injection_resistance: required; document text is untrusted input
+      met: false
+    disqualifiers:
+      - no evidence of reliable structured-output support
+      - model generation below the quality the compiled artifact requires
+    owned_capability_check: >
+      Not applicable; the need this would serve (cheaper inference) is not a need the
+      portfolio has. Model quality is the constraint, not model cost.
+    review_by: "2027-03-05"
+    decided_at: "2026-09-05T10:30:00Z"
+
+  - evaluation_id: multi-2026-09-05
+    vendor:
+      name: Multi
+      url: https://getmulti.ai/
+      category: multi-model workflow and routing
+      pricing: $19/month (first 30 days free) or $399 lifetime; bring-your-own OpenRouter key, no markup
+    proposing_product: ailhat
+    evaluated_for: [alvira-meos, alvira-bridge]
+    decision: tracked
+    decision_rationale: >
+      Adjacent rather than overlapping. Multi answers which model should answer a
+      request; ALVIRA answers what the model should know about the person. Useful as a
+      positioning comparable and a lifetime-pricing comp, not as a dependency.
+      Bridge is the only surface where an aggregator would create real reach, and Bridge
+      has unresolved defects of its own, so no integration is proposed.
+    operating_status: operating
+    vendor_claims:
+      - "no single model wins at everything"
+      - "300+ language models"
+      - '"Let Multi Choose" / "One Answer" / "Compare Answers" / "Panel Verdict"'
+      - '"Free Mode" — zero-cost model access with no paid fallback'
+    evidence:
+      - kind: vendor-site
+        observed_on: 2026-09-05
+        finding: >
+          Four named workflow modes, live web research, transparent cost tracking with
+          model-selection rationale, admin dashboard.
+      - kind: pricing-comparable
+        finding: >
+          $19/month or $399 lifetime against ALVIRA's $20/month plus a lifetime tier.
+          Independent convergence on the same pricing shape in adjacent territory.
+      - kind: internal-observation
+        finding: >
+          Evaluating Multi surfaced an unexamined dependency in tk-ap/ALVIRA: gpt-4o is
+          hardcoded across five server functions with no fallback provider.
+    owned_capability_check: >
+      The routing and fallback pattern is already owned. Hermes ships fallback and moa
+      subcommands, so acting on the internal finding requires no vendor.
+    proposed_work_ids: [alvira-model-fallback-2026-09-05]
+    blocked_on:
+      - "alvira-launch-readiness-2026-09-05 P1.1: /api/bridge/context returns 401"
+      - "alvira-launch-readiness-2026-09-05 P1.2: nothing links to /bridge"
+    human_oversight:
+      acceptance_gate: required_before_any_adoption
+      gate_owner: human product owner
+    review_by: "2026-12-05"
+    decided_at: "2026-09-05T10:30:00Z"
+
+source_documents:
+  - tk-ap/ailhat:docs/MARKET_SIGNAL_MODEL_ROUTING_2026-09-05.md

@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-os.local/contracts/vendor-evaluation.schema.json",
+  "title": "Agent OS Vendor Evaluation",
+  "description": "Portable record of a decision about an external product or service that is not a skill. An evaluation records a decision and its evidence; it never grants execution, spend, or integration authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evaluation_id",
+    "vendor",
+    "proposing_product",
+    "evaluated_for",
+    "decision",
+    "decision_rationale",
+    "operating_status",
+    "evidence",
+    "decided_at"
+  ],
+  "properties": {
+    "evaluation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "vendor": {
+      "type": "object",
+      "required": [
+        "name",
+        "url",
+        "category"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operator": {
+          "type": "string"
+        },
+        "pricing": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "proposing_product": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evaluated_for": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "decision": {
+      "enum": [
+        "declined",
+        "tracked",
+        "proposed-work",
+        "adopted",
+        "superseded"
+      ]
+    },
+    "decision_rationale": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operating_status": {
+      "enum": [
+        "operating",
+        "unknown",
+        "dormant",
+        "shut-down"
+      ],
+      "description": "Observed status only. When external state cannot be read or confirmed, this is 'unknown' \u2014 never inferred as dormant or shut-down from indirect signals."
+    },
+    "vendor_claims": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Vendor's own language, quoted rather than paraphrased, so market language is discovered rather than assumed."
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "minItems": 1
+    },
+    "capability_floor": {
+      "type": "object",
+      "description": "The concrete requirements a vendor must meet for the named use, checked before cost.",
+      "additionalProperties": true
+    },
+    "disqualifiers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "alternatives_considered": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "owned_capability_check": {
+      "type": "string",
+      "description": "Whether the need is already met by owned tooling or an existing skill. Required reasoning before any adoption."
+    },
+    "proposed_work_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blocked_on": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Unresolved conditions \u2014 typically defects in the consuming product's own surfaces \u2014 that must clear before adoption or integration is reconsidered."
+    },
+    "cost_exposure": {
+      "type": "object"
+    },
+    "human_oversight": {
+      "type": "object"
+    },
+    "review_by": {
+      "type": "string",
+      "format": "date"
+    },
+    "superseded_by": {
+      "type": "string"
+    },
+    "decided_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

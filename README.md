@@ -39,8 +39,9 @@ This keeps organizational roles and product truth stable while models, tools, ho
 - `registry/agents.yaml` — routing, ownership, and capability domains.
 - `registry/skills.yaml` — owned/approved/planned skill catalog, trust model, provenance, reviewed reference material, and discovery sources.
 - `registry/product-routing.yaml` — canonical product roles, constraints, default agents, shared workforce capabilities, and skill routing.
-- `registry/vendor-acquisition.yaml` — pinned/non-executable candidate acquisition plan.
-- `contracts/` — portable work-item, capability, context, authorization, and outcome schemas for cross-product/workspace handoffs.
+- `registry/vendor-acquisition.yaml` — pinned/non-executable candidate acquisition plan for skill sources.
+- `registry/vendor-evaluation.yaml` — governed decisions about external products and services that are not skills.
+- `contracts/` — portable work-item, capability, context, authorization, outcome, and vendor-evaluation schemas for cross-product/workspace handoffs.
 - `skills/skill-resolver/SKILL.md` — just-in-time skill selection, acquisition, and external discovery policy.
 - `skills/owned/` — ecosystem-specific procedures maintained by Agent OS, including task envelope, recurring work, identity design, authorization, provenance, and verification.
 - `skills/vendor/` — reviewed third-party skills adapted/pinned for Agent OS runtime.

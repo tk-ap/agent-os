@@ -74,6 +74,7 @@ Use portable contracts when work crosses a product, workspace, or execution boun
 - `contracts/context-envelope.schema.json` — use when ALVIRA-derived context must cross into a workflow. Preserve provenance and least-privilege use; ALVIRA remains the context-intelligence source.
 - `contracts/authorization-request.schema.json` — use before governed external action when authorization intelligence is required. Agent Control owns that decision layer where integrated.
 - `contracts/outcome-event.schema.json` — use after bounded execution to return status, artifacts, verification, authority evidence, cost, and measured outcome to the appropriate evidence/portfolio loop.
+- `contracts/vendor-evaluation.schema.json` — use when deciding whether to adopt an external product or service that is not a skill. An evaluation records a decision and its evidence; it never grants execution, spend, or integration authority. Skills and skill sources remain governed by `registry/vendor-acquisition.yaml`.
 
 LEDGATo may receive or produce governance/enforcement evidence when the work intersects its defined scope. Do not route generic authorization decisions to LEDGATo merely because an action is sensitive.
 
