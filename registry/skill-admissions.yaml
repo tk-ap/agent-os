@@ -1,0 +1,116 @@
+version: 0.2.0
+status: contract-defined-not-runtime-enforced
+policy: policies/SKILL_TRUST_POLICY.md
+capability_schema: contracts/skill-capability.schema.json
+workflow: docs/security/SKILL_ADMISSION_WORKFLOW.md
+security_tools: registry/security-tools.yaml
+
+# This registry is intentionally separate from registry/skills.yaml.
+# skills.yaml answers "what capability may be selected?"
+# skill-admissions.yaml answers "what immutable third-party material passed the trust gate?"
+# A future runtime gate must require both an active skill registration and a valid
+# non-suspended/non-revoked admission for external material.
+
+enforcement:
+  runtime_admission_gate: pending-implementation
+  fail_closed_target: true
+  immutable_digest_match_required: true
+  task_scoped_authorization_required: true
+  control_plane_write_from_third_party_skill: forbidden
+  repository_main_protection: required-not-yet-enforced
+  codeowners: .github/CODEOWNERS
+  enforcement_claim_allowed: false
+  note: Policy/contracts exist in this phase; host/runtime and GitHub repository settings must enforce them before protected-control-plane claims are valid.
+
+states:
+  untrusted: never executable
+  quarantined: immutable material captured; no production credentials or authority
+  under-review: static/dependency/instruction/capability review in progress
+  approved: immutable digest passed admission; still needs task-time authorization
+  active: approved digest may be selected within declared capabilities
+  suspended: temporarily blocked pending investigation or revalidation
+  revoked: permanently blocked until a new admission is created
+  superseded: replaced by a newer separately admitted digest
+
+risk_classes:
+  L0-reference: text/static reference only
+  L1-local-read: bounded project reads
+  L2-local-write: bounded project writes; no control-plane writes
+  L3-execution: shell/scripts/build/package execution
+  L4-external: network/API/external mutation
+  L5-privileged: production credentials, identity, permissions, money, destructive state, signing, or deployment control
+
+review_requirements:
+  common:
+    - exact immutable source and digests
+    - provenance and license
+    - inspect SKILL.md and all referenced files
+    - inspect scripts, manifests, install hooks, workflows, remote URLs, tool/MCP configuration, and environment requirements where present
+    - compare requested capabilities with actual behavior
+    - review instruction safety and self-install/self-escalation attempts
+    - define permitted agents and activation triggers
+    - define revocation conditions
+  scanner_evidence_when_used:
+    - scan exact immutable quarantined material
+    - record scanner version/digest and scan mode
+    - retain structured findings or evidence reference
+    - review suppressions/baselines explicitly
+    - never treat low risk or safe_to_install as approval
+    - never let scanner evidence replace source inspection, capability declaration, sandboxing, independent review, or required human approval
+  L0-reference: [domain-review]
+  L1-local-read: [domain-review, rook-review]
+  L2-local-write: [domain-review, rook-review, sandbox-forward-test]
+  L3-execution: [rook-review, eugene-executable-review, sandbox-adversarial-test]
+  L4-external: [rook-review, eugene-executable-review, authorization-policy-review, sandbox-adversarial-test, human-approval]
+  L5-privileged: [rook-review, eugene-executable-review, authorization-policy-review, sandbox-adversarial-test, fresh-human-approval-per-action]
+
+root_of_trust:
+  protected_paths:
+    - BOOTSTRAP.md
+    - HOST_PROFILES.md
+    - policies/
+    - registry/
+    - agents/
+    - contracts/
+    - skills/skill-resolver/
+    - skills/owned/authorization-policy/
+    - .github/
+  third_party_skill_write: deny
+  self_approval: deny
+  self_permission_change: deny
+  disable_observability_or_authorization: deny
+
+# External skills already marked approved in registry/skills.yaml predate this admission
+# contract. Do not pretend they passed controls that did not yet exist. Revalidate them
+# before a future runtime admission gate is switched to enforced mode.
+legacy_approved_inventory:
+  competitive-intelligence:
+    repository: anthropics/knowledge-work-plugins
+    pinned_blob: c9f441da6f5a09db4d5fc1cbddfa8fba86eeeda8
+    license: Apache-2.0
+    current_registry_trust: approved
+    zero_trust_admission: revalidation-required
+  research-synthesis:
+    repository: anthropics/knowledge-work-plugins
+    pinned_blob: 4807340a6ece564451718200b041a379b1c573a0
+    license: Apache-2.0
+    current_registry_trust: approved
+    zero_trust_admission: revalidation-required
+  user-research:
+    repository: anthropics/knowledge-work-plugins
+    pinned_commit: 4fa3cb92e2942d6594200fa8d2c800708e086072
+    license: Apache-2.0
+    current_registry_trust: approved
+    zero_trust_admission: revalidation-required
+
+# New admissions are keyed by a stable admission_id. Each must reference a checked-in
+# capability declaration or embed its exact validated fields once the admission toolchain exists.
+admissions: {}
+
+revocation:
+  check_before_each_load: true
+  digest_mismatch: revoke-or-quarantine
+  upstream_compromise: suspend-immediately
+  undeclared_runtime_access: suspend-immediately
+  dependency_compromise: suspend-immediately
+  new_version_inherits_trust: false
