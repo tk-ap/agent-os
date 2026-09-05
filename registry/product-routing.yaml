@@ -1,4 +1,4 @@
-version: 0.2.0
+version: 0.3.0
 
 principles:
   agent_os_workforce: shared execution infrastructure; not a separate public offering
@@ -26,22 +26,30 @@ shared_capabilities:
 
 products:
   alvira-meos:
-    plane: context
     repository: tk-ap/ALVIRA
+    local_product_manifest: .agent-os/product.yaml
+    local_integration_surface: .agent-os/integration-surface.yaml
+    plane: context
     role: context intelligence, capture, reflection, and portability
     primary_agents: [designer, eugene, w-dog, rook]
     default_skills: [context-provenance, ecosystem-contracts, end-to-end-verification]
     constraints: [shared interview engine does not imply one mega-interview, context is not authorization, growth agents may consume relevant context but do not turn ALVIRA into a marketing product]
   alvira-bridge:
-    plane: context
     repository: tk-ap/alvira-bridge
+    customer_surface_repository: tk-ap/ALVIRA
+    customer_surface: /bridge
+    local_product_manifest: .agent-os/product.yaml
+    local_integration_surface: .agent-os/integration-surface.yaml
+    plane: context
     role: gated secondary ALVIRA capability
     primary_agents: [eugene, designer, rook]
     default_skills: [ecosystem-contracts, context-provenance, authorization-policy]
-    constraints: [not a standalone public offering, unlock only under product-defined completion and account rules]
+    constraints: [not a standalone public offering, unlock only under product-defined completion and account rules, customer-facing Bridge work belongs to the ALVIRA /bridge surface unless the task explicitly targets the support implementation repository]
   ailhat:
-    plane: intelligence
     repository: tk-ap/ailhat
+    local_product_manifest: .agent-os/product.yaml
+    local_integration_surface: .agent-os/integration-surface.yaml
+    plane: intelligence
     role: host-agnostic portfolio intelligence and product signal
     primary_agents: [scout, zoie, steward, router, w-dog]
     default_skills: [market-truth-growth-intelligence, opportunity-triage, competitive-intelligence, research-synthesis, task-envelope, audit-evidence-ledger]
@@ -49,22 +57,26 @@ products:
     growth_output: [SIGNAL, EVIDENCE, PORTFOLIO_RELEVANCE, INTERPRETATION, RECOMMENDED_EXPERIMENT, SUCCESS_SIGNAL, LEARNING]
     constraints: [signals propose work, simulated findings must be labeled, recommendations require evidence, market language should be discovered rather than assumed, portfolio attention decisions remain governed]
   agent-control:
+    repository_status: unresolved
     plane: governance
-    repository: tk-ap/agent-control
     role: authorization intelligence
     primary_agents: [rook, eugene, w-dog]
     default_skills: [authorization-policy, audit-evidence-ledger, end-to-end-verification]
     constraints: [do not absorb capacity allocation or product-state UI outside its defined scope, growth intelligence may request authorization but cannot grant it]
   ledgato:
-    plane: governance
     repository: tk-ap/ledgato
+    local_product_manifest: .agent-os/product.yaml
+    local_integration_surface: .agent-os/integration-surface.yaml
+    plane: governance
     role: governance and enforcement concept
     primary_agents: [rook, eugene, zoie, w-dog]
     default_skills: [authorization-policy, ecosystem-contracts, end-to-end-verification]
-    constraints: [production runtime and buyer proof remain unresolved, do not overclaim enforcement, do not route generic growth work here unless governance or enforcement is materially involved]
+    constraints: [production runtime and buyer proof remain unresolved, do not overclaim enforcement, do not route generic growth or authorization work here unless governance or enforcement is materially involved]
   ashwood:
+    repository: tk-ap/tk-ap.github.io
+    local_product_manifest: .agent-os/product.yaml
+    local_integration_surface: .agent-os/integration-surface.yaml
     plane: evidence
-    repository: tk-ap/ashwood-web
     role: public creative portfolio and founder build archive
     primary_agents: [designer, scout, w-dog, steward]
     default_skills: [audit-evidence-ledger, research-synthesis, end-to-end-verification]

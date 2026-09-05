@@ -30,6 +30,9 @@ def _products(text: str) -> dict[str, dict[str, Any]]:
             m = re.match(r"^    repository:\s*(.+)$", line)
             if m:
                 result[current]["repository"] = m.group(1).strip().strip("'\"")
+            m = re.match(r"^    repository_status:\s*(.+)$", line)
+            if m:
+                result[current]["repository_status"] = m.group(1).strip().strip("'\"")
             m = re.match(r"^    role:\s*(.+)$", line)
             if m:
                 result[current]["role"] = m.group(1).strip()
@@ -80,7 +83,13 @@ def resolve_product(request: str, explicit: str | None = None) -> dict[str, Any]
     info = products[key]
     repo = info.get("repository")
     if not repo:
-        repo = {"ashwood": "tk-ap/ashwood-web", "alvira-meos": "tk-ap/ALVIRA", "ailhat": "tk-ap/ailhat"}.get(key, f"tk-ap/{key}")
+        status = info.get("repository_status", "unresolved")
+        return {
+            "status": "UNRESOLVED",
+            "product_key": key,
+            "reason": f"Product '{key}' repository is {status} in registry/product-routing.yaml.",
+            "source": "registry/product-routing.yaml",
+        }
     integrated = False
     if _repo_exists(repo):
         p = subprocess.run(["gh", "api", f"repos/{repo}/contents/.agent-os/product.yaml"], capture_output=True, text=True)

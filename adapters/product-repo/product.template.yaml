@@ -1,5 +1,6 @@
 version: 0.1.0
 product_key: replace-me
+agent_os_repository: tk-ap/agent-os
 routing_source: registry/product-routing.yaml
 repository: owner/repo
 
