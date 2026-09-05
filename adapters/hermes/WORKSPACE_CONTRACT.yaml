@@ -1,0 +1,99 @@
+version: 0.2.0
+adapter: hermes
+harness_class: cli-agentic-execution
+# Hermes is a model-provider-agnostic CLI agent used as an execution harness.
+# It is not the owner of product priority, workforce identity, context, authorization,
+# or governance. Those remain with Agent OS and its registry, policies, and product
+# repositories.
+
+canonical_sources:
+  product_routing: registry/product-routing.yaml
+  agent_routing: registry/agents.yaml
+  skills: registry/skills.yaml
+  handoffs: policies/HANDOFF_POLICY.md
+  autonomy: policies/AUTONOMY_POLICY.md
+
+repositories:
+  product:
+    role: working-tree
+    required_access: read-write
+    may_modify: true
+    authority: product-specific-source-of-truth
+  agent_os:
+    role: operating-layer
+    preferred_access: read-only
+    may_modify: false
+    authority: workforce-policy-product-routing-and-capability
+  agent_os_as_submodule:
+    role: operating-layer-read
+    description: when agent-os is checked out as a subdirectory (e.g. `agent-os/`) in the product repo, treat it as a read-only operating layer snapshot
+    may_modify: false
+
+precedence:
+  - platform-and-system-rules
+  - product-repository-instructions
+  - agent-os-product-routing
+  - agent-os-policies
+  - selected-agent-identity
+  - selected-approved-skills
+  - task-specific-instructions
+  - hermes-model-provider-config
+  - hermes-tool-access-within-task-authorization
+
+execution:
+  team_mode: minimum-sufficient
+  single_session_supported: true
+  sequential_multiagent_mode: true
+  load_all_agents: false
+  load_all_skills: false
+  require_product_boundary_check: true
+  require_verification: true
+  return_outcome_evidence_when_material: true
+  default_delivery: product-repository-change-or-comment
+
+portable_contracts:
+  work_item: contracts/work-item.schema.json
+  capability_manifest: contracts/capability-manifest.schema.json
+  context_envelope: contracts/context-envelope.schema.json
+  authorization_request: contracts/authorization-request.schema.json
+  outcome_event: contracts/outcome-event.schema.json
+
+ownership:
+  context_intelligence: alvira-meos
+  authorization_intelligence: agent-control
+  shared_workforce_execution: agent-os-workforce
+  portfolio_intelligence: ailhat
+  governance_enforcement_when_relevant: ledgato
+
+cross_product_write_policy:
+  default: propose-handoff
+  direct_write_requires: explicit-task-authorization
+  preserve_destination_repo_instructions: true
+
+agent_os_write_policy:
+  default: deny
+  allow_when:
+    - task-explicitly-targets-agent-os
+    - user-explicitly-authorizes-agent-os-change
+
+skill_policy:
+  allowed_trust_levels:
+    - owned
+    - approved
+  candidate_execution: false
+  prefer_vendored: true
+  external_discovery: resolver-governed
+
+model_and_tools:
+  model_provider_is_execution_dependency: true
+  model_provider_key_does_not_grant_agent_os_authority: true
+  github_token_scoped_to_task: true
+  tool_access_within_task_authorization_only: true
+  visual_verification_may_require_human_gate: true
+  preview_deploy_not_proof_of_human_verified_experience: true
+
+escalation:
+  policy: policies/AUTONOMY_POLICY.md
+  do_not_escalate_for_uncertainty_alone: true
+  merge_and_production_human_gated: true
+  for_ashwood_preserve_visual_and_editorial_constraints: true

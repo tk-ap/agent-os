@@ -1,56 +1,48 @@
-$schema: "https://json-schema.org/draft/2020-12/schema"
-$id: "urn:agent-os:contract:harness:v0"
-title: Agent OS Harness Contract v0
-summary: Describes an agentic executor's capabilities and trust boundary without granting authority.
-type: object
-additionalProperties: false
-required: [api_version, kind, metadata, spec]
-properties:
-  api_version:
-    const: agent-os/v0alpha1
-  kind:
-    const: Harness
-  metadata:
-    type: object
-    additionalProperties: false
-    required: [id]
-    properties:
-      id:
-        type: string
-        minLength: 1
-      provider:
-        type: string
-  spec:
-    type: object
-    additionalProperties: false
-    required: [mode, capabilities, authority_boundary]
-    properties:
-      mode:
-        type: string
-        enum: [local, remote, hybrid, workspace-service]
-      capabilities:
-        type: array
-        items:
-          type: string
-          enum: [filesystem, git, shell, browser, network, containers, mcp, local-models]
-        uniqueItems: true
-      compatible_hosts:
-        type: array
-        description: Optional host IDs or host classes known to be compatible.
-        items: {type: string}
-        uniqueItems: true
-        default: []
-      credential_classes:
-        type: array
-        description: Credential categories the harness may require; never credential values.
-        items: {type: string}
-        uniqueItems: true
-        default: []
-      constraints:
-        type: array
-        items: {type: string}
-        uniqueItems: true
-        default: []
-      authority_boundary:
-        const: policy-controlled
-        description: Harness capability can never widen task authorization.
+# Hermes Harness metadata
+# Registered in control-plane-contracts.yaml under harnesses.hermes
+# This block documents the Hermes harness as understood by the Agent OS control plane.
+# It is declarative and non-executable in v0alpha1.
+
+hermes:
+  id: hermes
+  version: 0.2.0
+  status: candidate
+  mode: remote
+  description: |
+    Model-provider-agnostic CLI agentic execution harness. Hermes resolves
+    tools within task authorization, uses a configured model provider for
+    reasoning, and returns results or product-changes/comments.
+
+    Hermes is an execution harness, not the owner of product priority,
+    workforce identity, context, authorization, or governance. Those remain
+    with Agent OS and its registry, policies, and product repositories.
+
+  capabilities:
+    - filesystem
+    - git
+    - shell
+    - network
+    - browser
+    - local-models
+
+  compatible_hosts:
+    - linux-desktop
+    - linux-ci-runner
+    - macos-desktop
+    - windows-desktop
+
+  credential_classes:
+    - model-provider-api-key
+    - github-token-task-scoped
+
+  constraints:
+    - model-provider-key-is-execution-dependency-not-authority
+    - tool-access-within-task-authorization-only
+    - github-token-scoped-to-task
+    - preview-deploy-not-proof-of-human-verified-experience
+    - visual-verification-may-require-human-gate
+    - merge-and-production-human-gated-for-ashwood
+    - single-session-hermes-can-simulate-multiagent-sequentially
+    - does-not-own-product-priority-workforce-identity-context-or-authorization
+
+  authority_boundary: policy-controlled
