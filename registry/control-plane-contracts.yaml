@@ -32,6 +32,7 @@ contracts:
 canonical_sources:
   product_routing: registry/product-routing.yaml
   agents: registry/agents.yaml
+  harnesses: registry/harnesses.yaml
   skills: registry/skills.yaml
   autonomy_policy: policies/AUTONOMY_POLICY.md
   handoff_policy: policies/HANDOFF_POLICY.md

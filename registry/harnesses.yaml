@@ -1,0 +1,78 @@
+version: 0.1.0
+status: v0alpha1
+mode: declarative-non-executable
+
+# Named harness registry.
+#
+# Each entry describes an agentic executor as an instance of
+# contracts/v0/harness.schema.yaml. This registry adds the operational
+# relationships (orchestration, delegation, selection hints) that the schema
+# intentionally leaves out. It grants no authority and stores no secrets.
+
+principles:
+  harness_is_executor_not_agent: >
+    A harness is the model/tool environment that performs agentic execution.
+    A durable organizational agent (Eugene, Designer, Rook, ...) executes
+    through a harness but is never identical to it. Agent identity is
+    distinct from harness/provider identity.
+  harness_never_grants_authority: >
+    Harness capability, mode, provider, or tool access can never widen task
+    authorization. authority_boundary is fixed at policy-controlled.
+  selection_may_consider_but_not_expand: >
+    Harness selection may weigh task class, tools, cost, privacy, model
+    capability, and environment compatibility. None of these factors expand
+    authority or bypass a human gate.
+  delegation_stays_inside_task_envelope: >
+    A harness that delegates execution to a sub-harness stays inside the same
+    task envelope, authorization state, and policy boundary. Delegation
+    creates no new authority and no new product ownership.
+
+harnesses:
+  hermes:
+    id: hermes
+    provider: nous-research
+    role: operator-harness
+    orchestrates: [codex-cli, claude-code, opencode]
+    mode: local
+    capabilities: [filesystem, git, shell, browser, network, mcp, local-models]
+    compatible_hosts: [omarchy]
+    credential_classes: [provider-api, scm]
+    constraints:
+      - single-runner-sequential-multi-agent
+      - human-merge-gated
+      - delegation-stays-inside-task-envelope
+    selection_hints:
+      - prefer-codex-for-heavy-implementation-and-pr-work
+      - prefer-claude-code-for-feature-work-and-review
+      - prefer-opencode-for-bounded-pr-review
+      - prefer-local-models-when-context-forbids-remote-eval
+    authority_boundary: policy-controlled
+
+  codex-cli:
+    id: codex-cli
+    provider: openai
+    role: sub-harness
+    mode: remote
+    capabilities: [filesystem, git, shell]
+    credential_classes: [provider-api]
+    constraints:
+      - browser-execution-requires-runtime-attestation
+    authority_boundary: policy-controlled
+
+  claude-code:
+    id: claude-code
+    provider: anthropic
+    role: sub-harness
+    mode: remote
+    capabilities: [filesystem, git, shell]
+    credential_classes: [provider-api]
+    authority_boundary: policy-controlled
+
+  opencode:
+    id: opencode
+    provider: sst
+    role: sub-harness
+    mode: remote
+    capabilities: [filesystem, git, shell]
+    credential_classes: [provider-api]
+    authority_boundary: policy-controlled
