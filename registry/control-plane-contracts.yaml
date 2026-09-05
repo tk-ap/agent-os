@@ -38,6 +38,26 @@ canonical_sources:
   recurring_work: skills/owned/recurring-work/SKILL.md
   host_profiles: HOST_PROFILES.md
 
+harnesses:
+  hermes:
+    schema: contracts/v0/harness.schema.yaml
+    purpose: model-provider-agnostic CLI agentic execution harness
+    status: candidate
+    constraints:
+      - model-provider-key-is-execution-dependency-not-authority
+      - tool-access-within-task-authorization-only
+      - github-token-scoped-to-task
+      - merge-and-production-human-gated-for-ashwood
+      - visual-verification-may-require-human-gate
+    adapter: adapters/hermes/WORKSPACE_CONTRACT.yaml
+    bootstrap: adapters/hermes/BOOTSTRAP.md
+  cto-new:
+    schema: contracts/v0/harness.schema.yaml
+    purpose: generalized agentic execution harness with its own workspace contract
+    status: candidate
+    adapter: adapters/cto-new/WORKSPACE_CONTRACT.yaml
+    bootstrap: adapters/cto-new/BOOTSTRAP.md
+
 invariants:
   - portable work items may propose or hand off work but do not grant execution authority
   - task authorization must be explicit
@@ -51,6 +71,8 @@ invariants:
   - evidence must distinguish execution and validation states
   - secrets and credential values must never be stored in these contracts
   - merge production destructive actions secrets access and spending remain governed by policy and task gates
+  - model-provider keys and github tokens are execution dependencies not authority grants
+  - a harness that can technically make broader changes does not imply broader permission
 
 out_of_scope:
   - runtime executor
