@@ -1,0 +1,59 @@
+version: 1
+host_profile: omarchy
+status: pilot
+required: false
+
+identity:
+  expected_hostname: ashwood-host-01
+  platform: linux
+  distro_family: arch
+
+workspace:
+  agent_os_repo: ~/agent-os
+  local_state_dir: .agent-os
+  local_task_db: .agent-os/tasks.db
+  secrets_in_repo: false
+
+capabilities:
+  shell: true
+  git: required
+  github_cli: required
+  browser: expected
+  editor: expected
+  local_task_api: true
+  local_inference: optional
+
+harnesses:
+  policy: minimum_sufficient
+  candidates:
+    - codex
+    - claude
+    - opencode
+  requirement: at_least_one_for_llm_host
+
+providers:
+  remote:
+    required: false
+    authority: none
+  magnitude:
+    status: experimental
+    required: false
+    authority: none
+    install_automatically: false
+    selection_rule: measure_host_capability_first
+
+security:
+  blanket_passwordless_sudo: forbidden
+  production_authority_by_connectivity: forbidden
+  secrets_in_repository: forbidden
+  protected_branch_mutation_by_default: forbidden
+  model_or_harness_may_expand_authority: false
+
+network:
+  local_task_api_bind: 127.0.0.1
+  local_task_api_port: 8787
+
+verification:
+  command: ./agent-os doctor
+  human_interrupt_required: true
+  evidence_required: true

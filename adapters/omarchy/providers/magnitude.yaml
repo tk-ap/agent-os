@@ -1,0 +1,32 @@
+version: 1
+provider: magnitude
+kind: local_inference
+status: experimental_candidate
+required: false
+
+detection:
+  command: magnitude
+
+policy:
+  install_automatically: false
+  grant_tool_authority: false
+  grant_target_authority: false
+  may_override_agent_os_policy: false
+  may_store_secrets_in_repo: false
+
+selection:
+  use_only_after_host_profile: true
+  prefer_for:
+    - privacy_sensitive_local_inference
+    - offline_or_degraded_connectivity
+    - lightweight_local_classification
+    - bounded_local_code_or_log_inspection
+  avoid_for:
+    - tasks_exceeding_measured_host_capacity
+    - production_authorization
+    - privilege_escalation
+
+notes:
+  - Magnitude is an inference provider candidate, not an Agent OS agent or skill.
+  - Host v1 must work without Magnitude.
+  - Model choice should be based on actual host profiling and observed quality/latency.

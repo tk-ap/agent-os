@@ -11,6 +11,7 @@ A portable `work-item` may precede a task when work crosses a product or workspa
 Before the generic load sequence, determine whether the current environment has a matching adapter under `adapters/`.
 
 - cto.new workspace → read `adapters/cto-new/BOOTSTRAP.md` and follow its workspace contract.
+- Omarchy workstation host → read `adapters/omarchy/README.md` and `adapters/omarchy/HOST_CONTRACT.yaml`; use `./agent-os doctor` to inspect host readiness before selecting a harness or provider.
 - Product repository with local Agent OS metadata → read the repository instructions plus `.agent-os/product.yaml` and `.agent-os/integration-surface.yaml` when present.
 - If no matching adapter exists → use the generic task-first load sequence below.
 
