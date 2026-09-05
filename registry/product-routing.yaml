@@ -30,7 +30,6 @@ products:
     local_product_manifest: .agent-os/product.yaml
     local_integration_surface: .agent-os/integration-surface.yaml
     plane: context
-    repository: tk-ap/ALVIRA
     role: context intelligence, capture, reflection, and portability
     primary_agents: [designer, eugene, w-dog, rook]
     default_skills: [context-provenance, ecosystem-contracts, end-to-end-verification]
@@ -42,7 +41,6 @@ products:
     local_product_manifest: .agent-os/product.yaml
     local_integration_surface: .agent-os/integration-surface.yaml
     plane: context
-    repository: tk-ap/alvira-bridge
     role: gated secondary ALVIRA capability
     primary_agents: [eugene, designer, rook]
     default_skills: [ecosystem-contracts, context-provenance, authorization-policy]
@@ -52,7 +50,6 @@ products:
     local_product_manifest: .agent-os/product.yaml
     local_integration_surface: .agent-os/integration-surface.yaml
     plane: intelligence
-    repository: tk-ap/ailhat
     role: host-agnostic portfolio intelligence and product signal
     primary_agents: [scout, zoie, steward, router, w-dog]
     default_skills: [market-truth-growth-intelligence, opportunity-triage, competitive-intelligence, research-synthesis, task-envelope, audit-evidence-ledger]
@@ -62,7 +59,6 @@ products:
   agent-control:
     repository_status: unresolved
     plane: governance
-    repository: tk-ap/agent-control
     role: authorization intelligence
     primary_agents: [rook, eugene, w-dog]
     default_skills: [authorization-policy, audit-evidence-ledger, end-to-end-verification]
@@ -72,7 +68,6 @@ products:
     local_product_manifest: .agent-os/product.yaml
     local_integration_surface: .agent-os/integration-surface.yaml
     plane: governance
-    repository: tk-ap/ledgato
     role: governance and enforcement concept
     primary_agents: [rook, eugene, zoie, w-dog]
     default_skills: [authorization-policy, ecosystem-contracts, end-to-end-verification]
@@ -82,7 +77,6 @@ products:
     local_product_manifest: .agent-os/product.yaml
     local_integration_surface: .agent-os/integration-surface.yaml
     plane: evidence
-    repository: tk-ap/ashwood-web
     role: public creative portfolio and founder build archive
     primary_agents: [designer, scout, w-dog, steward]
     default_skills: [audit-evidence-ledger, research-synthesis, end-to-end-verification]
