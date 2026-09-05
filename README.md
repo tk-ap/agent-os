@@ -61,6 +61,7 @@ Portable contracts make cross-product work explicit without coupling Agent OS to
 - `contracts/capability-manifest.schema.json` — minimum workforce, skills, tools, and harness candidates required for material work;
 - `contracts/context-envelope.schema.json` — least-privilege ALVIRA-derived context reference with provenance and permitted use;
 - `contracts/authorization-request.schema.json` — governed action request routed to Agent Control as authorization-intelligence owner where integrated;
+- `contracts/vendor-evaluation.schema.json` — decision and evidence record for adopting an external product or service that is not a skill; records a decision, never grants execution, spend, or integration authority;
 - `contracts/outcome-event.schema.json` — bounded execution result, verification, cost/evidence, and measured outcome.
 
 These interoperability contracts complement the control-plane task/workflow/harness/host/evidence model. They do not replace task authorization or create a second product registry.
