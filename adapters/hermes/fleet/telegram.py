@@ -94,6 +94,10 @@ def schema(conn):
             revision TEXT NOT NULL, summary TEXT NOT NULL, reported INTEGER NOT NULL DEFAULT 0,
             UNIQUE(product,kind,revision)
         );
+        CREATE TABLE IF NOT EXISTS agent_os_inspections (
+            task_id TEXT PRIMARY KEY, inspector_task_id TEXT, verdict TEXT,
+            failed TEXT, cycles INTEGER NOT NULL DEFAULT 0
+        );
         CREATE TABLE IF NOT EXISTS telegram_directives (
             id INTEGER PRIMARY KEY, ts REAL NOT NULL, text TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'captured', task_id TEXT
@@ -199,11 +203,116 @@ def short(value, limit=500):
     return str(value).replace("\x00", "")[:limit]
 
 
+INSPECTION_SUFFIX = "-inspection"
+
+
+def request_inspection(conn, state, now=None):
+    """Have W Dog check finished work before it ever reaches TK.
+
+    Nothing should arrive for approval having been seen only by the agent that
+    produced it. HANDOFF_POLICY.md already requires a producer/inspector loop
+    with a named independent domain, acceptance criteria and a termination
+    condition; this is that loop's first half.
+
+    The inspector is read-only and checks the producer's output against the
+    acceptance criteria the work item declared, so it cannot quietly fix what it
+    was asked to judge.
+    """
+    from .bridge import enqueue
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now or time.time()))
+    for row in conn.execute("SELECT * FROM agent_os_orders WHERE phase='review'").fetchall():
+        # An inspection is itself a task reaching review. Inspecting it would
+        # recurse forever, and there is no third party to break the tie.
+        if row["work_id"].endswith(INSPECTION_SUFFIX):
+            continue
+        if conn.execute("SELECT 1 FROM agent_os_inspections WHERE task_id=?", (row["task_id"],)).fetchone():
+            continue
+        try:
+            order = json.loads(row["payload"])
+        except ValueError:
+            continue
+        inspection = {
+            "work_id": order["work_id"] + INSPECTION_SUFFIX,
+            "routing_source": "registry/product-routing.yaml",
+            "source_product": "agent-os-workforce",
+            "owning_product": order["owning_product"],
+            "owning_agent": "w-dog",
+            "workspace": order["workspace"],
+            "problem_or_opportunity": {
+                "statement": "Work is finished and unchecked by anyone but the agent that did it.",
+                "producer": row["owning_agent"] or "unattributed",
+                "producer_work_id": order["work_id"],
+            },
+            "priority": {"level": "p1", "confidence": 1.0},
+            "desired_outcome": {
+                "verdict": "PASS or FAIL against each acceptance criterion, with the evidence checked.",
+                "boundary": "Judge only. Do not fix, improve, or extend the work.",
+            },
+            "required_capabilities": ["filesystem"],
+            "constraints": {
+                "read_only": "Change no files. You are checking, not producing.",
+                "criteria": "Report per criterion. A failure must cite what you looked at, "
+                            "not a preference for a different approach.",
+                "independence": "Do not accept the producer's own summary as evidence. "
+                                "Open what it claims to have changed.",
+            },
+            "acceptance_criteria": [
+                "States PASS or FAIL for every acceptance criterion of " + order["work_id"],
+                "Cites the file or output examined for each verdict",
+                "Changes no files",
+                "Names what it could not check and why",
+            ],
+            "status": "approved",
+            "created_at": stamp,
+        }
+        try:
+            inspector_task = enqueue(state, inspection, authority=f"inspection-of:{order['work_id']}")
+        except (ValueError, OSError):
+            # Recorded as unavailable rather than silently skipped: TK must be
+            # told the check did not happen, not left to assume it did.
+            conn.execute("""INSERT OR REPLACE INTO agent_os_inspections
+                (task_id,inspector_task_id,verdict,failed,cycles) VALUES (?,?,?,?,0)""",
+                (row["task_id"], None, "unavailable", "Inspector could not be started."))
+            continue
+        conn.execute("""INSERT OR REPLACE INTO agent_os_inspections
+            (task_id,inspector_task_id,verdict,failed,cycles) VALUES (?,?,NULL,NULL,1)""",
+            (row["task_id"], inspector_task))
+
+
+def read_inspection_verdicts(conn, state):
+    """Record each finished inspector's verdict against the work it checked."""
+    pending = conn.execute(
+        "SELECT * FROM agent_os_inspections WHERE verdict IS NULL AND inspector_task_id IS NOT NULL").fetchall()
+    for row in pending:
+        order = conn.execute("SELECT * FROM agent_os_orders WHERE task_id=?", (row["inspector_task_id"],)).fetchone()
+        if not order or order["phase"] not in {"review", "accepted", "done"}:
+            continue
+        record_path = Path(state) / order["task_id"] / f"{order['attempts']}.json"
+        checkpoint = {}
+        if record_path.exists():
+            try:
+                checkpoint = json.loads(json.loads(record_path.read_text()).get("checkpoint_text", "{}"))
+            except ValueError:
+                pass
+        summary = str(checkpoint.get("summary", ""))
+        verdict = "pass" if "FAIL" not in summary.upper() and summary else "fail"
+        conn.execute("UPDATE agent_os_inspections SET verdict=?, failed=? WHERE task_id=?",
+                     (verdict, short(summary, 600), row["task_id"]))
+
+
 def collect_reviews(conn, state):
     from hermes_cli import kanban_db as kb
     for row in conn.execute("SELECT * FROM agent_os_orders WHERE phase IN ('review','blocked','revoked')").fetchall():
         task = kb.get_task(conn, row["task_id"])
         if task.status not in {"review", "blocked"}:
+            continue
+        # An inspection is a task too; it is W Dog's report, not TK's decision.
+        if row["work_id"].endswith(INSPECTION_SUFFIX):
+            continue
+        inspection = conn.execute("SELECT * FROM agent_os_inspections WHERE task_id=?",
+                                  (row["task_id"],)).fetchone()
+        if inspection is None or inspection["verdict"] is None:
+            # Held, not dropped. Work reaches TK checked or not at all.
             continue
         order = json.loads(row["payload"])
         stamp = None
@@ -236,9 +345,21 @@ def collect_reviews(conn, state):
             text += "SOMETHING IS OFF\n"
             text += "  I could not take a reliable snapshot of the files, so there is no\n"
             text += "  safe Accept here. Have a look on the machine before deciding.\n"
-        text += "\nWHAT I CANNOT TELL YOU\n"
-        text += "  Nobody has checked this except the agent that did it.\n"
-        text += "  Nothing is published, deployed, or visible to anyone outside this machine.\n"
+        verdict = inspection["verdict"]
+        if verdict == "pass":
+            text += "\nSECOND OPINION\n"
+            text += "  W Dog checked this independently and found no problems.\n"
+            text += f"  {short(inspection['failed'], 240)}\n"
+        elif verdict == "fail":
+            text += "\nSECOND OPINION — PROBLEMS FOUND\n"
+            text += f"  {short(inspection['failed'], 400)}\n"
+            text += "  Saying yes here accepts work that failed its own checks.\n"
+        else:
+            text += "\nNO SECOND OPINION\n"
+            text += "  The independent check could not run, so this has been seen only\n"
+            text += "  by the agent that did it. That is not meant to happen.\n"
+        text += "\nEither way, nothing is published, deployed, or visible to anyone\n"
+        text += "outside this machine.\n"
         text += "\nYOUR OPTIONS\n"
         text += "  Accept — you are happy. Closes the job. Still publishes nothing.\n"
         text += "  Needs changes — send it back and stop the current attempt.\n"
@@ -969,6 +1090,8 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
                         except TelegramError:
                             pass  # A missed status reply is recoverable; the next /status re-reads live state.
                 conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('offset',?)", (str(update['update_id']+1),))
+            request_inspection(conn,state)
+            read_inspection_verdicts(conn,state)
             collect_reviews(conn,state)
             if config["basis"] == "commit":
                 collect_commits(conn,config.get("repositories",{}))
