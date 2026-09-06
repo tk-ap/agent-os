@@ -6,6 +6,7 @@ consumer owns its offset. Arbitrary messages never become agent instructions.
 import argparse
 import getpass
 import hashlib
+import html
 import json
 import os
 from pathlib import Path
@@ -37,6 +38,11 @@ class API:
     def call(self, method, **payload):
         if method not in {"getMe", "getWebhookInfo", "getUpdates", "sendMessage", "answerCallbackQuery", "editMessageText"}:
             raise ValueError("Unsupported Telegram operation")
+        # Linked here rather than at each call site, so no message can ship a
+        # jargon word without the explainer behind it.
+        if method in {"sendMessage", "editMessageText"} and payload.get("text") and "parse_mode" not in payload:
+            payload["text"] = linkify(payload["text"])
+            payload["parse_mode"] = "HTML"
         request = urllib.request.Request(
             f"https://api.telegram.org/bot{self.token}/{method}",
             data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
@@ -153,6 +159,42 @@ def fingerprint(row):
     return digest.hexdigest()
 
 
+AI_FROM_ZERO = "https://ashwood-info.vercel.app/ai-from-zero/"
+
+# Words that are jargon to a reader who does not build this system. Each one is
+# linked to the explainer the first time it appears in a message. A term with no
+# entry here does not belong in a card: link it or do not use it.
+GLOSSARY = {
+    "agent": "agent",
+    "agents": "agent",
+    "handoff": "handoff",
+    "context": "context-control",
+    "ecosystem": "ecosystem",
+}
+
+
+def linkify(text):
+    """Escape for Telegram HTML and link the first use of each jargon word.
+
+    One pass over the escaped text, so a link is never inserted inside a link.
+    Only the first occurrence of each term is linked — repeating it turns the
+    message into a wall of blue.
+    """
+    escaped = html.escape(text)
+    used = set()
+    pattern = re.compile(r"\b(" + "|".join(sorted(GLOSSARY, key=len, reverse=True)) + r")\b", re.IGNORECASE)
+
+    def replace(match):
+        word = match.group(0)
+        anchor_name = GLOSSARY[word.lower()]
+        if anchor_name in used:
+            return word
+        used.add(anchor_name)
+        return f'<a href="{AI_FROM_ZERO}#{anchor_name}">{word}</a>'
+
+    return pattern.sub(replace, escaped)
+
+
 def short(value, limit=500):
     return str(value).replace("\x00", "")[:limit]
 
@@ -178,16 +220,30 @@ def collect_reviews(conn, state):
             checkpoint = json.loads(record.get("checkpoint_text", "{}"))
         except ValueError:
             pass
-        text = f"Mr. Milchik — {order['owning_product']}\n{short(order['work_id'],120)}\n"
-        text += "Decision: accept this local result" if stamp else "Attention needed; inspect locally"
-        text += f"\nState: {row['phase']} · Attempts: {row['attempts']}\n"
-        text += f"Worker: {record.get('harness','unknown')} · Result: {record.get('result','not recorded')}\n"
-        text += f"Worker summary: {short(checkpoint.get('summary','No structured summary recorded'))}\n"
-        text += "Acceptance criteria: " + short("; ".join(order["acceptance_criteria"])) + "\n"
-        text += f"Worker-reported checks: {short(checkpoint.get('verification',[]))}\n"
-        text += "Independent acceptance: pending. Live deployment: not established by this run.\n"
-        text += f"Task: {task.id}\nEvidence on workstation: {record_path.parent}\n"
-        text += "Accept result closes this local task only. It does not publish, merge, or deploy."
+        # Written for TK, who is not reading this as an engineer. Plain words,
+        # the decision first, and the limits stated rather than implied.
+        agent = (row["owning_agent"] or "An agent").title()
+        tries = row["attempts"]
+        summary = checkpoint.get("summary") or "The agent did not say what it did."
+        text = f"{agent} finished something. Your call.\n\n"
+        text += f"WHAT IT DID\n  {short(summary, 320)}\n\n"
+        text += f"WHERE\n  {order['owning_product']} · {short(order['work_id'],80)}\n\n"
+        if stamp:
+            text += "IS IT SAFE TO SAY YES?\n"
+            text += f"  It finished cleanly{' on the first try' if tries == 1 else f', after {tries} tries'}. "
+            text += "The files are exactly as it left them.\n"
+        else:
+            text += "SOMETHING IS OFF\n"
+            text += "  I could not take a reliable snapshot of the files, so there is no\n"
+            text += "  safe Accept here. Have a look on the machine before deciding.\n"
+        text += "\nWHAT I CANNOT TELL YOU\n"
+        text += "  Nobody has checked this except the agent that did it.\n"
+        text += "  Nothing is published, deployed, or visible to anyone outside this machine.\n"
+        text += "\nYOUR OPTIONS\n"
+        text += "  Accept — you are happy. Closes the job. Still publishes nothing.\n"
+        text += "  Needs changes — send it back and stop the current attempt.\n"
+        text += "  Pause — stop for now. Nothing is deleted.\n"
+        text += f"\nFiles are on your machine at:\n  {record_path.parent}"
         conn.execute("""INSERT OR IGNORE INTO telegram_cards
             (id,event_key,task_id,snapshot,expires,message) VALUES (?,?,?,?,?,?)""",
             (secrets.token_urlsafe(12), key, task.id, stamp, time.time()+86400, text))
@@ -244,17 +300,22 @@ def _fleet_line(kind, detail):
     """One compact line per fleet event. detail is already a dict from the event store."""
     d = detail or {}
     if kind == "queued":
-        return f"▸ queued · harnesses {', '.join(d.get('harnesses', []))}"
+        return "· Added to the queue, waiting for a free worker"
     if kind == "claim":
         if d.get("outcome") == "denied":
-            return f"✕ claim denied · {d.get('reason', 'invalid authority')}"
-        return f"▸ claimed · attempt {d.get('attempts', 0)}/{d.get('max_attempts', '?')}"
+            return f"✕ Not allowed to start — {d.get('reason', 'no valid authority')}"
+        attempt = d.get("attempts", 0)
+        return "· Picked up" + ("" if attempt <= 1 else f", retry {attempt}")
     if kind == "start":
-        return f"▸ start · {d.get('harness', '?')} · attempt {d.get('attempt', '?')}"
+        return f"· Working, using {d.get('harness', 'an unknown tool')}"
     if kind == "result":
-        return f"◂ result · {d.get('harness', '?')} · {d.get('result', '?')}"
+        return f"· Finished: {d.get('result', 'no result recorded')}"
     if kind == "phase":
-        return f"◼ phase → {d.get('phase', '?')}" + (f" · {d.get('reason', '')}" if d.get('reason') else "")
+        readable = {"review": "Waiting on TK to approve", "done": "Closed",
+                    "blocked": "Stuck", "revoked": "Stopped", "queued": "Back in the queue"}
+        phase = d.get("phase", "?")
+        line = "· " + readable.get(phase, f"Now: {phase}")
+        return line + (f" — {d.get('reason')}" if d.get("reason") else "")
     return f"· {kind}"
 
 
@@ -386,33 +447,41 @@ def collect_contributions(conn, state):
             continue
         key = f"contribution:{row['task_id']}:{row['attempts']}"
         agent = row["owning_agent"] or "UNATTRIBUTED"
-        lines = [f"{order.get('owning_product','?')} · {short(order.get('work_id',''),60)} · {agent}"]
+        problem = order.get("problem_or_opportunity")
+        if isinstance(problem, dict):
+            problem = problem.get("statement") or next(iter(problem.values()), "not stated")
+        lines = [f"{agent.title()} · {short(order.get('work_id',''),60)} · {order.get('owning_product','?')}"]
         lines.append("")
-        lines.append("WHY")
-        lines.append(f"  {short(order.get('problem_or_opportunity','not stated'), 300)}")
+        lines.append("WHY THIS WAS DONE")
+        lines.append(f"  {short(problem, 280)}")
 
         did = checkpoint.get("contributions") or checkpoint.get("summary")
-        lines.append("DID  [agent's own account]")
-        lines.append(f"  {short(did, 300) if did else 'No account given — the agent did not state what it did.'}")
+        lines.append("")
+        lines.append("WHAT IT SAYS IT DID")
+        lines.append(f"  {short(did, 280) if did else 'It did not say.'}")
 
         did_not = checkpoint.get("non_contributions")
-        lines.append("DID NOT  [agent's own account]")
+        lines.append("")
+        lines.append("WHAT IT SAYS IT LEFT ALONE")
         if did_not:
-            lines.append(f"  {short(did_not, 300)}")
+            lines.append(f"  {short(did_not, 280)}")
         else:
             # HANDOFF_POLICY.md: a report silent about what was held back has not
             # stated its boundary, and omission is a defect rather than a blank.
-            lines.append("  Not stated. Omission is a defect: the boundary was not declared.")
+            lines.append("  It did not say. That is a gap — every agent is meant to")
+            lines.append("  state what it deliberately stopped short of.")
 
-        lines.append("RECORD  [verified]")
-        lines.append(f"  phase {row['phase']} · attempt {row['attempts']} · harness {record.get('harness','unknown')}")
-        lines.append(f"  result {short(record.get('result','not recorded'), 120)}")
-        checks = checkpoint.get("verification")
-        lines.append(f"  worker-reported checks: {short(checks, 160) if checks else 'none'}")
-        lines.append(f"  evidence: {record_path.parent}")
+        lines.append("")
+        lines.append("WHAT ACTUALLY HAPPENED")
+        lines.append(f"  Ran on {record.get('harness','an unknown tool')}, "
+                     f"{'first try' if row['attempts'] == 1 else str(row['attempts']) + ' tries'}, "
+                     f"ended as: {short(record.get('result','not recorded'), 80)}")
+        lines.append("")
+        lines.append("  The two sections above are the agent describing itself.")
+        lines.append("  This line is the only part taken from the record.")
         if row["phase"] == "review":
             lines.append("")
-            lines.append("Awaiting your decision in the private chat.")
+            lines.append("TK has the decision in the private chat.")
         conn.execute("INSERT OR IGNORE INTO telegram_cards(id,event_key,expires,message,channel) VALUES (?,?,?,?,?)",
                      (secrets.token_urlsafe(12), key, time.time()+604800, "\n".join(lines), "monitor"))
 
