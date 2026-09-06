@@ -308,50 +308,87 @@ def collect_signals(conn):
     conn.executemany("UPDATE telegram_signals SET reported=1 WHERE id=?", [(r['id'],) for r in rows])
 
 
-def status_report(conn, config):
-    """Read-only founder view, answered on demand rather than pushed.
+def backlog_top(k=3):
+    """Top-ranked backlog items Milchik should surface, or None if unreadable.
 
-    Answers four questions: what is being worked on, what is waiting on the
-    founder, what is stuck, and what was recorded as changed. It reads state
-    and reports it. It starts nothing, decides nothing, and grants nothing.
+    Ranking decides attention, never execution: an item's authority state is
+    reported alongside it so a high rank is never mistaken for a go-ahead.
+    """
+    try:
+        import yaml
+        from runtime import backlog as backlog_runtime
+        items = yaml.safe_load((ROOT / "agents/milchik/backlog.yaml").read_text()) or []
+        return [(item, backlog_runtime.attention_score(item),
+                 backlog_runtime.authority_present(item)) for item in backlog_runtime.next_for_attention(items, k)]
+    except Exception:
+        return None  # A status reply degrades rather than failing when the backlog is unavailable.
+
+
+def status_report(conn, config):
+    """Milchik's founder view, answered on demand rather than pushed.
+
+    Reports recorded state and cites where each number came from. It starts
+    nothing, decides nothing, and grants nothing.
+
+    Two rules from agents/milchik/IDENTITY.md shape what this may say: activity
+    is never reported as progress (§08), and every figure names the record it
+    came from (§12). Counts of running tasks are therefore labelled as recorded
+    state, not as work completed.
     """
     now = time.time()
     lines = ["Mr. Milchik — status"]
 
     counts = {r["status"]: r["c"] for r in conn.execute(
         "SELECT status, count(*) c FROM tasks WHERE status IN ('running','review','blocked') GROUP BY status")}
-    lines.append(f"Working: {counts.get('running',0)} · In review: {counts.get('review',0)} · Blocked: {counts.get('blocked',0)}")
+    lines.append(f"Fleet (recorded task state): running {counts.get('running',0)} · "
+                 f"in review {counts.get('review',0)} · blocked {counts.get('blocked',0)}")
+    lines.append("Recorded state only. Running is not progress and no worker self-report is counted here.")
 
     awaiting = conn.execute("""SELECT task_id, message FROM telegram_cards
         WHERE channel='private' AND decision IS NULL AND delivery='sent'
           AND task_id IS NOT NULL AND expires > ? ORDER BY expires LIMIT 5""", (now,)).fetchall()
     lines.append("")
-    lines.append(f"Awaiting your decision: {len(awaiting)}")
+    lines.append(f"Awaiting your decision: {len(awaiting)}  [delivered cards, undecided, unexpired]")
     for row in awaiting:
-        lines.append(f"• {short(row['message'].splitlines()[1] if len(row['message'].splitlines()) > 1 else row['task_id'], 90)}")
+        body = row["message"].splitlines()
+        lines.append(f"• {short(body[1] if len(body) > 1 else row['task_id'], 90)}")
 
     blocked = conn.execute("""SELECT id, title, block_kind FROM tasks
         WHERE status='blocked' ORDER BY started_at DESC LIMIT 5""").fetchall()
     if blocked:
         lines.append("")
-        lines.append(f"Blocked: {len(blocked)}")
+        lines.append(f"Blocked: {len(blocked)}  [task record]")
         for row in blocked:
             lines.append(f"• {short(row['title'] or row['id'], 80)} ({row['block_kind'] or 'unspecified'})")
+
+    ranked = backlog_top()
+    lines.append("")
+    if ranked is None:
+        lines.append("Backlog: unavailable  [agents/milchik/backlog.yaml unreadable]")
+    elif not ranked:
+        lines.append("Backlog: empty")
+    else:
+        lines.append("Next for attention  [agents/milchik/backlog.yaml, ranked by runtime/backlog.py]")
+        for item, score, authorized in ranked:
+            gate = "pre-authorized" if authorized else f"needs approval ({item.get('status','proposed')})"
+            lines.append(f"• {score:.0f} {short(item.get('title', item.get('work_id','untitled')), 74)}")
+            lines.append(f"    {item.get('priority',{}).get('level','p3')} · {item.get('source','agent')} · {gate}")
+        lines.append("Ranking is attention, not authority. Nothing here is enqueued by being listed.")
 
     changes = conn.execute("""SELECT product, kind, revision, summary FROM telegram_changes
         ORDER BY id DESC LIMIT 5""").fetchall()
     lines.append("")
-    lines.append("Recorded changes (newest first):" if changes else "Recorded changes: none")
+    lines.append("Recorded changes, newest first  [telegram_changes]" if changes else "Recorded changes: none")
     for row in changes:
         lines.append(f"• {row['product']} {row['kind']} {row['revision'][:12]} {short(row['summary'],80)}")
     if changes:
         lines.append("Commits are not deployments. A live-site change needs producer evidence.")
 
-    pending = conn.execute("SELECT channel, count(*) c FROM telegram_cards WHERE delivery='pending' GROUP BY channel").fetchall()
-    stuck = {r["channel"]: r["c"] for r in pending}
-    if stuck.get("monitor") and not config.get("monitor_chat_id"):
+    pending = {r["channel"]: r["c"] for r in conn.execute(
+        "SELECT channel, count(*) c FROM telegram_cards WHERE delivery='pending' GROUP BY channel")}
+    if pending.get("monitor") and not config.get("monitor_chat_id"):
         lines.append("")
-        lines.append(f"{stuck['monitor']} monitor cards queued: monitor channel is not paired.")
+        lines.append(f"{pending['monitor']} monitor cards queued: monitor channel is not paired.")
 
     return "\n".join(lines)
 
