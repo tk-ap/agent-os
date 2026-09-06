@@ -827,6 +827,9 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
                     # free-form Telegram text is not an agent prompt and grants no authority.
                     message = update["message"]
                     body = str(message.get("text","")).strip().split("@")[0].lower()
+                    # First word only, so "/do fix the sitemap" matches the command
+                    # while the rest stays as the directive text.
+                    head = body.split(None, 1)[0] if body.split() else ""
                     sender = message.get("from",{}).get("id")
                     chat = message.get("chat",{}).get("id")
                     if sender == config["user_id"] and not config.get("monitor_chat_id"):
@@ -845,22 +848,47 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
                             except TelegramError:
                                 pass
                     text = str(message.get("text","")).strip()
-                    if (sender == config["user_id"] and chat == config["chat_id"]
-                            and text and not text.startswith("/")):
+                    directive = None
+                    if text.startswith(">"):
+                        directive = text[1:].strip()
+                    elif head == "/do":
+                        parts = text.split(None, 1)
+                        directive = parts[1].strip() if len(parts) > 1 else ""
+                    if (directive is not None and sender == config["user_id"]
+                            and chat == config["chat_id"] and directive):
                         # Recorded as a directive, NOT executed. Free-form text is
                         # still not an agent prompt: this writes a row and answers
                         # with what it wrote. Turning it into work needs routing,
                         # which needs a model, which this tick does not have.
                         conn.execute("INSERT INTO telegram_directives(ts,text) VALUES (?,?)",
-                                     (time.time(), short(text, 2000)))
+                                     (time.time(), short(directive, 2000)))
                         number = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                         try:
                             api.call("sendMessage",chat_id=chat,text=(
                                 f"Directive #{number} recorded.\n\n"
-                                f"{short(text,300)}\n\n"
+                                f"{short(directive,300)}\n\n"
                                 "Not routed and not started. Nothing has been assigned to an agent "
                                 "and no work has begun. It is queued for routing, which needs a "
                                 "model pass this scheduler tick deliberately does not have."),
+                                link_preview_options={"is_disabled":True})
+                        except TelegramError:
+                            pass
+                    elif (sender == config["user_id"] and chat == config["chat_id"]
+                            and directive == ""):
+                        try:
+                            api.call("sendMessage",chat_id=chat,
+                                text="Empty directive. Put the instruction after > or /do.",
+                                link_preview_options={"is_disabled":True})
+                        except TelegramError:
+                            pass
+                    elif (sender == config["user_id"] and chat == config["chat_id"]
+                            and text and not text.startswith("/")):
+                        # Ignoring this silently is the dangerous option: it looks
+                        # identical to a captured directive that never ran.
+                        try:
+                            api.call("sendMessage",chat_id=chat,text=(
+                                "Not recorded. Prefix a directive with > or /do — "
+                                "plain messages here are not instructions."),
                                 link_preview_options={"is_disabled":True})
                         except TelegramError:
                             pass
