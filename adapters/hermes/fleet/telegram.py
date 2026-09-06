@@ -295,6 +295,68 @@ def collect_fleet(conn):
     conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('fleet_watermark',?)", (str(events[-1]["id"]),))
 
 
+def route_directives(conn, state, now=None):
+    """Turn captured directives into routing tasks.
+
+    Choosing an owner is judgement and needs a model. *Asking* for that
+    judgement does not: every field of the routing work item is fixed except
+    the directive text, so this scheduler tick can enqueue the question without
+    ever answering it. The model runs in the worker, where it is attributed and
+    its result is reviewable.
+
+    Router owns the routing decision (agents/router/IDENTITY.md), so the task is
+    attributed to router and its output is a proposal, not an assignment.
+    """
+    from .bridge import enqueue
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now or time.time()))
+    for row in conn.execute("SELECT id, text FROM telegram_directives WHERE status='captured' ORDER BY id").fetchall():
+        order = {
+            "work_id": f"directive-{row['id']}-routing",
+            "routing_source": "registry/product-routing.yaml",
+            "source_product": "agent-os-workforce",
+            "owning_product": "agent-os-workforce",
+            "owning_agent": "router",
+            "workspace": str(ROOT),
+            "problem_or_opportunity": {
+                "statement": "A directive from TK has no owner, priority, or lane.",
+                "directive": row["text"],
+                "captured_as": f"telegram_directives#{row['id']}",
+            },
+            "priority": {"level": "p1", "confidence": 1.0},
+            "desired_outcome": {
+                "proposal": "One owning agent, a priority level, a lane, and the reasoning for each.",
+                "boundary": "Propose only. Do not start the directed work.",
+            },
+            "required_capabilities": ["filesystem"],
+            "constraints": {
+                "propose_only": "Return a routing proposal. Do not execute the directive.",
+                "registry": "Choose the owner from registry/agents.yaml by `owns` domain, "
+                            "minimum sufficient team, applying the agent-vs-skill test.",
+                "lane": "ecosystem for operating-layer work, directive for product work.",
+            },
+            "acceptance_criteria": [
+                "Names one owning agent that exists in registry/agents.yaml",
+                "States a priority level p0-p3 with a reason",
+                "States the lane and why",
+                "States what it deliberately did NOT decide, per HANDOFF_POLICY.md articulation",
+                "Does not begin the directed work",
+            ],
+            "status": "approved",
+            "created_at": stamp,
+        }
+        try:
+            task_id = enqueue(state, order, authority=f"human-directive:{row['id']}")
+        except (ValueError, OSError) as exc:
+            conn.execute("UPDATE telegram_directives SET status='route_failed' WHERE id=?", (row["id"],))
+            conn.execute("INSERT OR IGNORE INTO telegram_cards(id,event_key,expires,message) VALUES (?,?,?,?)",
+                         (secrets.token_urlsafe(12), f"directive-failed:{row['id']}", time.time()+604800,
+                          f"Directive #{row['id']} could not be routed.\n\n{short(str(exc),300)}\n\n"
+                          "It stays recorded and unassigned. Nothing was started."))
+            continue
+        conn.execute("UPDATE telegram_directives SET status='routing', task_id=? WHERE id=?",
+                     (task_id, row["id"]))
+
+
 def collect_contributions(conn, state):
     """Post the reasoning behind a change to the monitor channel.
 
@@ -566,13 +628,16 @@ def status_report(conn, config):
         "SELECT status, count(*) c FROM tasks WHERE status IN ('running','review') GROUP BY status")}
 
     lines.append("")
-    directives = conn.execute(
-        "SELECT id, text FROM telegram_directives WHERE status='captured' ORDER BY id").fetchall()
+    directives = conn.execute("""SELECT id, text, status FROM telegram_directives
+        WHERE status != 'closed' ORDER BY id""").fetchall()
     if directives:
         lines.append("")
-        lines.append(f"YOUR DIRECTIVES  {len(directives)} unrouted")
+        lines.append(f"YOUR DIRECTIVES  {len(directives)} open")
+        state_label = {"captured": "not yet routed", "routing": "routing proposal in progress",
+                       "route_failed": "ROUTING FAILED — still unassigned"}
         for row in directives[:5]:
             lines.append(f"  #{row['id']} {short(row['text'], 56)}")
+            lines.append(f"      {state_label.get(row['status'], row['status'])}")
 
     lines.append("")
     lines.append(f"AWAITING YOU   {len(awaiting)}")
@@ -812,6 +877,7 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
                 collect_commits(conn,config.get("repositories",{}))
             collect_batches(conn,config["every"],config["basis"])
             collect_fleet(conn)
+            route_directives(conn,state)
             collect_contributions(conn,state)
             collect_signals(conn)
             deliver(conn,config,api)
