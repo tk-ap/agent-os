@@ -49,6 +49,11 @@ def connect(state):
             payload TEXT NOT NULL, digest TEXT NOT NULL, authority TEXT NOT NULL,
             expires REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0,
             phase TEXT NOT NULL DEFAULT 'queued', attempts INTEGER NOT NULL DEFAULT 0,
+            -- Attribution. NULL is meaningful: work with no owning agent is a
+            -- workforce coverage gap. Existing databases get this column from
+            -- the migration in telegram.py; it is declared here so a fresh one
+            -- never depends on that having run.
+            owning_agent TEXT,
             next_at REAL NOT NULL DEFAULT 0, harnesses TEXT NOT NULL,
             max_attempts INTEGER NOT NULL, timeout INTEGER NOT NULL
         );
@@ -93,6 +98,13 @@ def validate(order):
         raise ValueError("workspace must be an existing absolute directory")
     if str(workspace.resolve()) != str(workspace):
         raise ValueError("workspace must be canonical (no symlinks or traversal)")
+    declared = [order["owning_agent"]] if order.get("owning_agent") else []
+    declared += order.get("contributing_agents", [])
+    if declared:
+        known = yaml.safe_load((ROOT / "registry/agents.yaml").read_text())["agents"]
+        unknown = sorted(set(declared) - set(known))
+        if unknown:
+            raise ValueError(f"Unknown agent(s) in attribution: {', '.join(unknown)}")
     if not set(order["required_capabilities"]) <= {"filesystem", "git", "shell"}:
         raise ValueError("This adapter supports local file work only; browser/external actions need another adapter")
     return workspace
@@ -127,9 +139,10 @@ def enqueue(state, order, authority, expires_in=86400, selected=harnesses.SUPPOR
                 initial_status="blocked", idempotency_key="agent-os:" + order["work_id"],
                 max_runtime_seconds=timeout * max_attempts + 120, max_retries=2)
             conn.execute("""INSERT INTO agent_os_orders
-                (task_id,work_id,payload,digest,authority,expires,harnesses,max_attempts,timeout)
-                VALUES (?,?,?,?,?,?,?,?,?)""", (task_id, order["work_id"], json.dumps(order),
-                digest(order), authority, time.time() + expires_in, json.dumps(selected), max_attempts, timeout))
+                (task_id,work_id,payload,digest,authority,expires,harnesses,max_attempts,timeout,owning_agent)
+                VALUES (?,?,?,?,?,?,?,?,?,?)""", (task_id, order["work_id"], json.dumps(order),
+                digest(order), authority, time.time() + expires_in, json.dumps(selected), max_attempts, timeout,
+                order.get("owning_agent")))
             kb.unblock_task(conn, task_id)
             emit(conn, task_id, "queued", {"work_id": order["work_id"],
                                            "harnesses": list(selected)})

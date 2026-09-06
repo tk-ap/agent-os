@@ -103,7 +103,13 @@ def migrate(conn):
     forever, so every read of that column fails at runtime rather than at
     install time. Each entry is idempotent and safe on a fresh database.
     """
-    additions = {"telegram_cards": {"channel": "TEXT NOT NULL DEFAULT 'private'"}}
+    additions = {
+        "telegram_cards": {"channel": "TEXT NOT NULL DEFAULT 'private'"},
+        # Local attribution. The portable contract declares owning_agent; this is
+        # where the runtime reads it without re-parsing the payload. NULL is
+        # meaningful: unattributed work is a workforce coverage gap, not an error.
+        "agent_os_orders": {"owning_agent": "TEXT"},
+    }
     for table, columns in additions.items():
         present = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if not present:
@@ -283,6 +289,87 @@ def collect_fleet(conn):
         conn.execute("INSERT OR IGNORE INTO telegram_cards(id,event_key,expires,message,channel) VALUES (?,?,?,?,?)",
                      (secrets.token_urlsafe(12), key, time.time()+86400, "\n".join(lines), "monitor"))
     conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('fleet_watermark',?)", (str(events[-1]["id"]),))
+
+
+def collect_contributions(conn, state):
+    """Post the reasoning behind a change to the monitor channel.
+
+    This is the record that otherwise does not survive. Commits show what
+    changed; the private chat holds the decision; neither holds why the change
+    was proposed or what was deliberately left undone. A transcript holds both
+    and is thrown away.
+
+    Claim and record are kept visually separate on purpose. Per
+    agents/milchik/IDENTITY.md §12 a self-report is labeled and checked, never
+    laundered into fact — an agent describing its own contribution is evidence
+    of what it believes it did, not of what happened.
+    """
+    rows = conn.execute("""SELECT * FROM agent_os_orders
+        WHERE phase IN ('review','done','blocked')""").fetchall()
+    for row in rows:
+        record_path = Path(state) / row["task_id"] / f"{row['attempts']}.json"
+        record = json.loads(record_path.read_text()) if record_path.exists() else {}
+        checkpoint = {}
+        try:
+            checkpoint = json.loads(record.get("checkpoint_text", "{}"))
+        except ValueError:
+            pass
+        try:
+            order = json.loads(row["payload"])
+        except ValueError:
+            continue
+        key = f"contribution:{row['task_id']}:{row['attempts']}"
+        agent = row["owning_agent"] or "UNATTRIBUTED"
+        lines = [f"{order.get('owning_product','?')} · {short(order.get('work_id',''),60)} · {agent}"]
+        lines.append("")
+        lines.append("WHY")
+        lines.append(f"  {short(order.get('problem_or_opportunity','not stated'), 300)}")
+
+        did = checkpoint.get("contributions") or checkpoint.get("summary")
+        lines.append("DID  [agent's own account]")
+        lines.append(f"  {short(did, 300) if did else 'No account given — the agent did not state what it did.'}")
+
+        did_not = checkpoint.get("non_contributions")
+        lines.append("DID NOT  [agent's own account]")
+        if did_not:
+            lines.append(f"  {short(did_not, 300)}")
+        else:
+            # HANDOFF_POLICY.md: a report silent about what was held back has not
+            # stated its boundary, and omission is a defect rather than a blank.
+            lines.append("  Not stated. Omission is a defect: the boundary was not declared.")
+
+        lines.append("RECORD  [verified]")
+        lines.append(f"  phase {row['phase']} · attempt {row['attempts']} · harness {record.get('harness','unknown')}")
+        lines.append(f"  result {short(record.get('result','not recorded'), 120)}")
+        checks = checkpoint.get("verification")
+        lines.append(f"  worker-reported checks: {short(checks, 160) if checks else 'none'}")
+        lines.append(f"  evidence: {record_path.parent}")
+        if row["phase"] == "review":
+            lines.append("")
+            lines.append("Awaiting your decision in the private chat.")
+        conn.execute("INSERT OR IGNORE INTO telegram_cards(id,event_key,expires,message,channel) VALUES (?,?,?,?,?)",
+                     (secrets.token_urlsafe(12), key, time.time()+604800, "\n".join(lines), "monitor"))
+
+
+def value_ledger(conn):
+    """Per-agent outcomes from decisions actually made, plus coverage gaps.
+
+    Scored from TK's recorded accept / needs-changes / pause decisions rather
+    than from anything an agent says about itself — the only value signal here
+    that is not a self-report.
+
+    Work with no owning agent is reported rather than hidden: a domain nothing
+    owns is the workforce gap worth seeing.
+    """
+    rows = conn.execute("""SELECT o.owning_agent AS agent, c.decision AS decision, COUNT(*) AS n
+        FROM telegram_cards c JOIN agent_os_orders o ON o.task_id = c.task_id
+        WHERE c.decision IS NOT NULL GROUP BY o.owning_agent, c.decision""").fetchall()
+    tally = {}
+    for row in rows:
+        tally.setdefault(row["agent"] or "UNATTRIBUTED", {})[row["decision"]] = row["n"]
+    unattributed = conn.execute(
+        "SELECT COUNT(*) FROM agent_os_orders WHERE owning_agent IS NULL").fetchone()[0]
+    return tally, unattributed
 
 
 def record_signal(conn, scope, polarity, text):
@@ -501,6 +588,17 @@ def status_report(conn, config):
         lines.append("")
         lines.append(f"{pending['monitor']} monitor cards queued: channel not paired.")
 
+    tally, unattributed = value_ledger(conn)
+    if tally or unattributed:
+        lines.append("")
+        lines.append("AGENT OUTCOMES  [your decisions, not self-reports]")
+        for agent, decisions in sorted(tally.items()):
+            accepted = decisions.get("accept", 0)
+            total = sum(decisions.values())
+            lines.append(f"  {agent:<12} {accepted}/{total} accepted first time")
+        if unattributed:
+            lines.append(f"  {unattributed} work item(s) with no owning agent — coverage gap")
+
     lines.append("")
     lines.append("Recorded state only; running is not progress. Commits are not deployments.")
     lines.append("Sources: gh pr list · git log · review cards · milchik backlog.")
@@ -676,6 +774,7 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
                 collect_commits(conn,config.get("repositories",{}))
             collect_batches(conn,config["every"],config["basis"])
             collect_fleet(conn)
+            collect_contributions(conn,state)
             collect_signals(conn)
             deliver(conn,config,api)
             return {"status":"ok"}
