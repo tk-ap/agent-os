@@ -255,8 +255,12 @@ def request_inspection(conn, state, now=None):
                             "not a preference for a different approach.",
                 "independence": "Do not accept the producer's own summary as evidence. "
                                 "Open what it claims to have changed.",
+                "verdict_format": "Begin your summary with a line reading exactly 'VERDICT: PASS' or "
+                                  "'VERDICT: FAIL', then the per-criterion detail. This line is read "
+                                  "by machine; prose around it is read by people.",
             },
             "acceptance_criteria": [
+                "Its summary's FIRST LINE is exactly 'VERDICT: PASS' or 'VERDICT: FAIL' and nothing else",
                 "States PASS or FAIL for every acceptance criterion of " + order["work_id"],
                 "Cites the file or output examined for each verdict",
                 "Changes no files",
@@ -295,7 +299,20 @@ def read_inspection_verdicts(conn, state):
             except ValueError:
                 pass
         summary = str(checkpoint.get("summary", ""))
-        verdict = "pass" if "FAIL" not in summary.upper() and summary else "fail"
+        # Read the declared verdict line. Searching the prose for "FAIL" reads a
+        # report that says "all five PASS, none FAIL" as a failure, which sends
+        # correct work back around the loop and eventually escalates it as the
+        # producer's fault.
+        first = summary.strip().splitlines()[0].strip().upper() if summary.strip() else ""
+        if first == "VERDICT: PASS":
+            verdict = "pass"
+        elif first == "VERDICT: FAIL":
+            verdict = "fail"
+        else:
+            # Neither churn nor silently accept. Defaulting to fail costs a wasted
+            # cycle and blames the producer; defaulting to pass ships unchecked
+            # work. Hand the judgement to TK with the text in front of him.
+            verdict = "unreadable"
         conn.execute("UPDATE agent_os_inspections SET verdict=?, failed=? WHERE task_id=?",
                      (verdict, short(summary, 600), row["task_id"]))
 
@@ -416,6 +433,11 @@ def collect_reviews(conn, state):
             text += "\nSECOND OPINION — PROBLEMS FOUND\n"
             text += f"  {short(inspection['failed'], 400)}\n"
             text += "  Saying yes here accepts work that failed its own checks.\n"
+        elif verdict == "unreadable":
+            text += "\nSECOND OPINION — UNCLEAR\n"
+            text += "  W Dog checked this but did not give a clean yes or no, so I\n"
+            text += "  cannot tell you which it was. Here is what it said:\n"
+            text += f"  {short(inspection['failed'], 400)}\n"
         else:
             text += "\nNO SECOND OPINION\n"
             text += "  The independent check could not run, so this has been seen only\n"
@@ -496,7 +518,7 @@ def _fleet_line(kind, detail):
     if kind == "result":
         return f"· Finished: {d.get('result', 'no result recorded')}"
     if kind == "phase":
-        readable = {"review": "Waiting on TK to approve", "done": "Closed",
+        readable = {"review": "Finished, going for an independent check", "done": "Closed",
                     "blocked": "Stuck", "revoked": "Stopped", "queued": "Back in the queue"}
         phase = d.get("phase", "?")
         line = "· " + readable.get(phase, f"Now: {phase}")
@@ -665,8 +687,19 @@ def collect_contributions(conn, state):
         lines.append("  The two sections above are the agent describing itself.")
         lines.append("  This line is the only part taken from the record.")
         if row["phase"] == "review":
+            inspection = conn.execute("SELECT verdict FROM agent_os_inspections WHERE task_id=?",
+                                      (row["task_id"],)).fetchone()
             lines.append("")
-            lines.append("TK has the decision in the private chat.")
+            if row["work_id"].endswith(INSPECTION_SUFFIX):
+                lines.append("This was the check. The work it judged moves on from here.")
+            elif inspection is None or inspection["verdict"] is None:
+                # Saying TK has it while an agent still holds it invites him to go
+                # looking for a decision that is not there.
+                lines.append("Still with the workforce — being checked independently.")
+            elif inspection["verdict"] == "pass":
+                lines.append("Checked and passed. TK has the decision in the private chat.")
+            else:
+                lines.append("The check did not pass. Back to the workforce, not to TK.")
         conn.execute("INSERT OR IGNORE INTO telegram_cards(id,event_key,expires,message,channel) VALUES (?,?,?,?,?)",
                      (secrets.token_urlsafe(12), key, time.time()+604800, "\n".join(lines), "monitor"))
 
