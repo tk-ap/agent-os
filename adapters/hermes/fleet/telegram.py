@@ -351,8 +351,12 @@ def backlog_top(k=3):
         import yaml
         from runtime import backlog as backlog_runtime
         items = yaml.safe_load((ROOT / "agents/milchik/backlog.yaml").read_text()) or []
+        # runtime/backlog.py scores on priority and confidence alone and does not
+        # consider status, so a completed item keeps its rank forever. Excluding
+        # `done` here rather than there leaves that scoring contract untouched.
+        open_items = [item for item in items if item.get("status") != "done"]
         return [(item, backlog_runtime.attention_score(item),
-                 backlog_runtime.authority_present(item)) for item in backlog_runtime.next_for_attention(items, k)]
+                 backlog_runtime.authority_present(item)) for item in backlog_runtime.next_for_attention(open_items, k)]
     except Exception:
         return None  # A status reply degrades rather than failing when the backlog is unavailable.
 

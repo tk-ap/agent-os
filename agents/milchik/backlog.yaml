@@ -1,0 +1,96 @@
+# Milchik-managed work backlog — machine-readable data.
+#
+# Ranked by runtime/backlog.py (attention_score + authority_present). Origin is
+# declared per item and weighted there, not here. This file holds *proposal*
+# state; a human-triggered item is pre-authorized to queue by its source, while
+# agent/routine items still require explicit approval before enqueue.
+#
+# Status: proposed -> approved -> queued (fleet) -> done. Ranking decides
+# attention; approval decides execution.
+#
+# `done` is terminal and carries evidence. runtime/backlog.py deliberately
+# scores on priority and confidence alone, so a done item still ranks — it is
+# consumers that must exclude it (see backlog_top in the Telegram surface).
+# Completed items stay here as history rather than being deleted.
+
+- work_id: alvira-discoverability-sitemap
+  source: agent
+  status: done
+  completed:
+    at: 2026-09-06
+    evidence: "tk-ap/ALVIRA c698105 on codex/interview-intro"
+    note: |
+      sitemap.xml and robots.txt repointed to alviratech.vercel.app. The
+      /why-alvira entry was dropped rather than repointed: it returns 404 and
+      its content now lives at the #why-alvira anchor on /pricing. All nine
+      remaining URLs verified 200. Committed but NOT yet deployed — the live
+      site serves the old sitemap until this reaches the deploy branch.
+  priority: {level: p1, confidence: 0.9}
+  title: Fix ALVIRA sitemap.xml + robots.txt pointing at decommissioned cto.new domain
+  problem: |
+    alviratech.vercel.app sitemap lists 10 URLs on alvira.ctonew.app (503), and
+    robots.txt points crawlers at the dead host. Highest-severity de-indexing
+    class in discoverability-audit.md §12.
+  desired_outcome: sitemap and robots.txt repointed to the live domain in tk-ap/ALVIRA
+  notes: |
+    Cross-product write: Agent OS may propose-handoff only. Worth clearing before
+    the first scheduled audit run so it is not dominated by one known defect.
+
+- work_id: milchik-two-chat-runtime
+  source: human
+  status: done
+  completed:
+    at: 2026-09-06
+    evidence: "agent-os 050545c, aa9ffa9, 022fb30"
+    note: |
+      Runtime is complete and the monitor channel is still UNPAIRED —
+      monitor_chat_id is absent, so monitor cards stay pending by design.
+      Pairing is now a user action, not remaining build work: add the bot to
+      the group and forward one message from it into the private chat; the
+      fleet tick captures it.
+
+      Repaired a missing `channel` column migration that had been throwing on
+      every tick, unified the two competing pairing paths into the tick (a
+      second getUpdates poller can never coexist with it), and added /status.
+
+      Caveat: only ONE monitor chat is supported. config holds a single
+      monitor_chat_id, so a second group cannot receive cards without a
+      schema change.
+  priority: {level: p0, confidence: 1.0}
+  title: Finish Milchik two-chat Telegram runtime (monitor channel + private approvals)
+  problem: |
+    Fleet event feed, two-chat delivery, and drift/memory signal collection are
+    half-built; the monitor group chat_id is not yet wired into config.
+  desired_outcome: one bot in two chats, fleet lifecycle lines to the group,
+    approvals + drift + memory to TK's private chat
+  notes: |
+    Human-triggered and in-flight. p0 = current focus; already authorized.
+
+- work_id: promote-discoverability-audit-routine
+  source: agent
+  status: proposed
+  priority: {level: p2, confidence: 0.6}
+  title: Promote discoverability-audit routine from DRAFT to REVIEWED (dry-run/PR mode)
+  problem: |
+    Routine is drafted but unbound; promotion is a human decision (routines/README.md).
+  desired_outcome: routine REVIEWED and dry-run bound, sitemap defect cleared first
+
+- work_id: routine-cost-cap-enforcement
+  source: agent
+  status: proposed
+  priority: {level: p2, confidence: 0.5}
+  title: Implement cap enforcement (per-turn cost measurement + portfolio breaker)
+  problem: |
+    Caps are contract terms checked by reading evidence records; nothing measures
+    spend at a turn boundary. Blocks real recurring operation. Ledger owns economics.
+  desired_outcome: a measured, breaker-enforced cap path before any routine runs ACTIVE
+
+- work_id: contribution-articulation-policy
+  source: human
+  status: approved
+  priority: {level: p1, confidence: 1.0}
+  title: Codify contribution/non-contribution articulation into HANDOFF_POLICY.md
+  problem: |
+    Session 20260905_110730_efb725 established the pattern: an agent states what
+    it did AND what it deliberately did not do. Not yet written into policy.
+  desired_outcome: HANDOFF_POLICY.md gains the articulation requirement + canonical example
