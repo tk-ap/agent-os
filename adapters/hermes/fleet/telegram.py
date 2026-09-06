@@ -88,6 +88,10 @@ def schema(conn):
             revision TEXT NOT NULL, summary TEXT NOT NULL, reported INTEGER NOT NULL DEFAULT 0,
             UNIQUE(product,kind,revision)
         );
+        CREATE TABLE IF NOT EXISTS telegram_directives (
+            id INTEGER PRIMARY KEY, ts REAL NOT NULL, text TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'captured', task_id TEXT
+        );
         CREATE TABLE IF NOT EXISTS telegram_signals (
             id INTEGER PRIMARY KEY, ts REAL NOT NULL, scope TEXT NOT NULL,
             polarity TEXT NOT NULL, text TEXT NOT NULL, reported INTEGER NOT NULL DEFAULT 0
@@ -562,6 +566,15 @@ def status_report(conn, config):
         "SELECT status, count(*) c FROM tasks WHERE status IN ('running','review') GROUP BY status")}
 
     lines.append("")
+    directives = conn.execute(
+        "SELECT id, text FROM telegram_directives WHERE status='captured' ORDER BY id").fetchall()
+    if directives:
+        lines.append("")
+        lines.append(f"YOUR DIRECTIVES  {len(directives)} unrouted")
+        for row in directives[:5]:
+            lines.append(f"  #{row['id']} {short(row['text'], 56)}")
+
+    lines.append("")
     lines.append(f"AWAITING YOU   {len(awaiting)}")
     for row in awaiting:
         body = row["message"].splitlines()
@@ -766,6 +779,26 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
                                          "Approvals stay in this private chat.")
                             except TelegramError:
                                 pass
+                    text = str(message.get("text","")).strip()
+                    if (sender == config["user_id"] and chat == config["chat_id"]
+                            and text and not text.startswith("/")):
+                        # Recorded as a directive, NOT executed. Free-form text is
+                        # still not an agent prompt: this writes a row and answers
+                        # with what it wrote. Turning it into work needs routing,
+                        # which needs a model, which this tick does not have.
+                        conn.execute("INSERT INTO telegram_directives(ts,text) VALUES (?,?)",
+                                     (time.time(), short(text, 2000)))
+                        number = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                        try:
+                            api.call("sendMessage",chat_id=chat,text=(
+                                f"Directive #{number} recorded.\n\n"
+                                f"{short(text,300)}\n\n"
+                                "Not routed and not started. Nothing has been assigned to an agent "
+                                "and no work has begun. It is queued for routing, which needs a "
+                                "model pass this scheduler tick deliberately does not have."),
+                                link_preview_options={"is_disabled":True})
+                        except TelegramError:
+                            pass
                     if body == "/status" and sender == config["user_id"] and chat in {
                             config["chat_id"], config.get("monitor_chat_id")}:
                         try:
