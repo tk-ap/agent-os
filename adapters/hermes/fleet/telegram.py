@@ -96,7 +96,7 @@ def schema(conn):
         );
         CREATE TABLE IF NOT EXISTS agent_os_inspections (
             task_id TEXT PRIMARY KEY, inspector_task_id TEXT, verdict TEXT,
-            failed TEXT, cycles INTEGER NOT NULL DEFAULT 0
+            failed TEXT, cycles INTEGER NOT NULL DEFAULT 0, snapshot TEXT
         );
         CREATE TABLE IF NOT EXISTS telegram_directives (
             id INTEGER PRIMARY KEY, ts REAL NOT NULL, text TEXT NOT NULL,
@@ -123,6 +123,9 @@ def migrate(conn):
         # where the runtime reads it without re-parsing the payload. NULL is
         # meaningful: unattributed work is a workforce coverage gap, not an error.
         "agent_os_orders": {"owning_agent": "TEXT"},
+        # A verdict is only about the files it was given. Without the snapshot it
+        # was formed against, a later change silently inherits an old approval.
+        "agent_os_inspections": {"snapshot": "TEXT"},
     }
     for table, columns in additions.items():
         present = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
@@ -313,8 +316,13 @@ def read_inspection_verdicts(conn, state):
             # cycle and blames the producer; defaulting to pass ships unchecked
             # work. Hand the judgement to TK with the text in front of him.
             verdict = "unreadable"
-        conn.execute("UPDATE agent_os_inspections SET verdict=?, failed=? WHERE task_id=?",
-                     (verdict, short(summary, 600), row["task_id"]))
+        try:
+            inspected = fingerprint(conn.execute("SELECT * FROM agent_os_orders WHERE task_id=?",
+                                                 (row["task_id"],)).fetchone())
+        except (OSError, ValueError, subprocess.SubprocessError):
+            inspected = None
+        conn.execute("UPDATE agent_os_inspections SET verdict=?, failed=?, snapshot=? WHERE task_id=?",
+                     (verdict, short(summary, 600), inspected, row["task_id"]))
 
 
 MAX_REVISION_CYCLES = 2
@@ -425,6 +433,10 @@ def collect_reviews(conn, state):
             text += "  I could not take a reliable snapshot of the files, so there is no\n"
             text += "  safe Accept here. Have a look on the machine before deciding.\n"
         verdict = inspection["verdict"]
+        # The verdict belongs to the files W Dog opened. If they have moved since,
+        # it is not a second opinion on what TK is being asked to approve.
+        if verdict == "pass" and inspection["snapshot"] and stamp and inspection["snapshot"] != stamp:
+            verdict = "stale"
         if verdict == "pass":
             text += "\nSECOND OPINION\n"
             text += "  W Dog checked this independently and found no problems.\n"
@@ -433,6 +445,10 @@ def collect_reviews(conn, state):
             text += "\nSECOND OPINION — PROBLEMS FOUND\n"
             text += f"  {short(inspection['failed'], 400)}\n"
             text += "  Saying yes here accepts work that failed its own checks.\n"
+        elif verdict == "stale":
+            text += "\nSECOND OPINION NO LONGER APPLIES\n"
+            text += "  W Dog passed this, then the files changed. Its approval was\n"
+            text += "  about the earlier version, not the one in front of you now.\n"
         elif verdict == "unreadable":
             text += "\nSECOND OPINION — UNCLEAR\n"
             text += "  W Dog checked this but did not give a clean yes or no, so I\n"

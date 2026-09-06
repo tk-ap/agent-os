@@ -158,6 +158,20 @@ class TelegramReviewTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_verdict_does_not_carry_to_changed_files(self):
+        """A pass is about the files inspected, not the ones TK ends up seeing."""
+        conn,task,config,query = self.card()
+        try:
+            conn.execute("UPDATE agent_os_inspections SET snapshot='inspected-something-else' WHERE task_id=?",
+                         (task.id,))
+            conn.execute("DELETE FROM telegram_cards")
+            telegram.collect_reviews(conn,self.state)
+            card = conn.execute("SELECT message FROM telegram_cards WHERE channel='private'").fetchone()
+            self.assertIn("NO LONGER APPLIES", card["message"])
+            self.assertNotIn("found no problems", card["message"])
+        finally:
+            conn.close()
+
     def test_review_deduplication(self):
         conn,task,config,query = self.card()
         try:
