@@ -54,6 +54,36 @@ delivered to the private chat instead.
 The split is deliberate: **group for visibility, private chat for approvals.**
 Buttons never appear in the group, so no group member can approve anything.
 
+## Giving a directive
+
+Prefix it: `> ship the sitemap fix` or `/do ship the sitemap fix`, in the private
+chat.
+
+Milchik records it as a numbered directive, echoes back what he wrote, and
+enqueues a routing task attributed to Router. Router proposes one owning agent,
+a priority, and a lane, with reasoning, and returns it as a review card to
+accept. Nothing is assigned or started by the act of speaking.
+
+**Capture is not execution.** Writing a row and reporting the row is not obeying
+an instruction, which is why the standing rule still holds: free-form Telegram
+text is not an agent prompt and grants no authority. Choosing an owner is
+judgement and runs in a worker with a model, never in the scheduler tick.
+
+An unprefixed message gets a one-line reply saying it was not recorded. Silently
+ignoring it would look identical to a directive that was captured and never ran.
+
+## Asking for status
+
+Send `/status` in the private chat or the monitor group. Milchik replies with a
+per-project view: open PRs split ready/draft, commits in the last day,
+uncommitted work, overlapping repositories, what awaits your decision, what is
+blocked, your open directives, and what is next for attention.
+
+It answers only the paired founder, and only in the paired chats. It reads state
+and reports it: it starts nothing, decides nothing, and grants nothing.
+
+`/status` and a prefixed directive are the only text this bot acts on.
+
 ## Optional change summaries
 
 Default is review alerts only. To also send a digest every five new local commits
