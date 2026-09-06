@@ -58,6 +58,12 @@ delivered to the private chat instead.
 The split is deliberate: **group for visibility, private chat for approvals.**
 Buttons never appear in the group, so no group member can approve anything.
 
+The rule the split follows: **the private chat is only for work that cannot
+proceed without TK.** A review card, a failed routing, an escalation after the
+revision loop gave up — those stop until he acts. Commit digests, drift signals,
+fleet lifecycle and contribution reports all go to the group, because the work
+continues whether or not he reads them.
+
 ## Giving a directive
 
 Prefix it: `> ship the sitemap fix` or `/do ship the sitemap fix`, in the private

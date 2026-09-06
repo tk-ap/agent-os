@@ -474,8 +474,10 @@ def collect_batches(conn, every, basis):
         text += "\nCommits do not prove a live-site change. Deployment records require producer evidence."
         text += "\nHuman/visual verification is reported separately on review cards."
         key = f"batch:{product}:{basis}:{rows[0]['id']}:{rows[-1]['id']}"
-        conn.execute("INSERT OR IGNORE INTO telegram_cards(id,event_key,expires,message) VALUES (?,?,?,?)",
-                     (secrets.token_urlsafe(12),key,time.time()+604800,text))
+        # Awareness, not a decision. The private chat is for work that cannot
+        # proceed without TK; a commit digest can always proceed without him.
+        conn.execute("INSERT OR IGNORE INTO telegram_cards(id,event_key,expires,message,channel) VALUES (?,?,?,?,?)",
+                     (secrets.token_urlsafe(12),key,time.time()+604800,text,"monitor"))
         conn.executemany("UPDATE telegram_changes SET reported=1 WHERE id=?", [(r['id'],) for r in rows])
 
 
@@ -709,7 +711,7 @@ def collect_signals(conn):
     text += "\n".join(f"{'▲' if r['polarity'] == 'positive' else '▼'} [{r['scope']}] {r['text']}" for r in rows)
     key = f"signals:{rows[0]['id']}:{rows[-1]['id']}"
     conn.execute("INSERT OR IGNORE INTO telegram_cards(id,event_key,expires,message,channel) VALUES (?,?,?,?,?)",
-                 (secrets.token_urlsafe(12), key, time.time()+86400, text[:3900], "private"))
+                 (secrets.token_urlsafe(12), key, time.time()+86400, text[:3900], "monitor"))
     conn.executemany("UPDATE telegram_signals SET reported=1 WHERE id=?", [(r['id'],) for r in rows])
 
 
@@ -1165,12 +1167,8 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
                                      (time.time(), short(directive, 2000)))
                         number = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                         try:
-                            api.call("sendMessage",chat_id=chat,text=(
-                                f"Directive #{number} recorded.\n\n"
-                                f"{short(directive,300)}\n\n"
-                                "Not routed and not started. Nothing has been assigned to an agent "
-                                "and no work has begun. It is queued for routing, which needs a "
-                                "model pass this scheduler tick deliberately does not have."),
+                            api.call("sendMessage",chat_id=chat,
+                                text=f"Got it — #{number}. I will come back when I need you.",
                                 link_preview_options={"is_disabled":True})
                         except TelegramError:
                             pass
