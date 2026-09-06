@@ -73,7 +73,7 @@ class TelegramReviewTests(unittest.TestCase):
     def test_acceptance_closes_exact_local_task_and_prevents_replay(self):
         conn,task,config,query = self.card()
         try:
-            self.assertIn("accepted",telegram.decide(conn,config,query))
+            self.assertIn("accepted",telegram.decide(conn,config,query).lower())
             self.assertEqual(kb.get_task(conn,task.id).status,"done")
             self.assertIn("already handled",telegram.decide(conn,config,query))
             self.assertEqual(bridge.order_row(conn,task.id)["phase"],"accepted")

@@ -49,6 +49,36 @@
       "uniqueItems": true,
       "description": "Agents that materially contributed without being accountable. Contribution is not ownership."
     },
+    "publish_action": {
+      "type": "object",
+      "description": "What a human approval authorizes, declared before the work runs. Absent means approval closes the task and authorizes nothing further.",
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "none",
+            "commit"
+          ],
+          "description": "commit stages and commits the declared paths in the workspace. It never pushes: publishing beyond the machine is a separate grant."
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "description": "Workspace-relative paths. Only these are committed; anything else the run touched is left staged for a human."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "workspace": {
       "type": "string",
       "minLength": 1

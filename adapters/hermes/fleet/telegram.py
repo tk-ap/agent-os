@@ -300,6 +300,68 @@ def read_inspection_verdicts(conn, state):
                      (verdict, short(summary, 600), row["task_id"]))
 
 
+MAX_REVISION_CYCLES = 2
+
+
+def run_revisions(conn, state, now=None):
+    """Send failed work back to its producer, within bounds.
+
+    HANDOFF_POLICY.md sets the terminations: acceptance reached, cycle cap hit,
+    the same disagreement repeating without new evidence, or the next decision
+    belonging to a human. All four end the loop here rather than iterating.
+
+    The producer receives only the failed criteria — the policy is explicit that
+    inspection must not become a free-form conversation.
+    """
+    from .bridge import enqueue
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now or time.time()))
+    failures = conn.execute("SELECT * FROM agent_os_inspections WHERE verdict='fail'").fetchall()
+    for row in failures:
+        order_row_ = conn.execute("SELECT * FROM agent_os_orders WHERE task_id=?", (row["task_id"],)).fetchone()
+        if not order_row_ or order_row_["phase"] != "review":
+            continue
+        try:
+            order = json.loads(order_row_["payload"])
+        except ValueError:
+            continue
+        previous = conn.execute("SELECT failed FROM agent_os_inspections WHERE task_id=? AND verdict='escalated'",
+                                (row["task_id"],)).fetchone()
+        repeated = previous is not None and previous["failed"] == row["failed"]
+        if row["cycles"] >= MAX_REVISION_CYCLES or repeated:
+            reason = ("the same problem came back unchanged" if repeated
+                      else f"it has been round {row['cycles']} times")
+            conn.execute("UPDATE agent_os_inspections SET verdict='escalated' WHERE task_id=?", (row["task_id"],))
+            conn.execute("INSERT OR IGNORE INTO telegram_cards(id,event_key,expires,message) VALUES (?,?,?,?)",
+                (secrets.token_urlsafe(12), f"escalation:{row['task_id']}:{row['cycles']}", time.time()+604800,
+                 f"{(order_row_['owning_agent'] or 'An agent').title()} could not get this right, "
+                 f"and I have stopped trying.\n\n"
+                 f"WHAT WAS ASKED\n  {short(order.get('work_id',''), 120)}\n\n"
+                 f"WHY I STOPPED\n  I sent it back and {reason}.\n\n"
+                 f"WHAT IS STILL WRONG\n  {short(row['failed'], 400)}\n\n"
+                 "Nothing was published. The files are on the machine as the agent left them.\n"
+                 "This needs you or a different owner."))
+            continue
+        revision = dict(order)
+        revision["work_id"] = f"{order['work_id']}-rev{row['cycles'] + 1}"
+        revision["created_at"] = stamp
+        revision["problem_or_opportunity"] = {
+            "statement": "A previous attempt failed its independent check.",
+            "original_work_id": order["work_id"],
+            "failed_criteria": short(row["failed"], 1500),
+        }
+        revision["constraints"] = dict(order.get("constraints") or {})
+        revision["constraints"]["revision"] = (
+            "Fix only the failed criteria listed above. Do not redo passing work "
+            "and do not widen scope.")
+        try:
+            enqueue(state, revision, authority=f"revision-of:{order['work_id']}")
+        except (ValueError, OSError):
+            conn.execute("UPDATE agent_os_inspections SET verdict='escalated' WHERE task_id=?", (row["task_id"],))
+            continue
+        conn.execute("""UPDATE agent_os_inspections SET verdict=NULL, cycles=?, inspector_task_id=NULL
+            WHERE task_id=?""", (row["cycles"] + 1, row["task_id"]))
+
+
 def collect_reviews(conn, state):
     from hermes_cli import kanban_db as kb
     for row in conn.execute("SELECT * FROM agent_os_orders WHERE phase IN ('review','blocked','revoked')").fetchall():
@@ -361,7 +423,7 @@ def collect_reviews(conn, state):
         text += "\nEither way, nothing is published, deployed, or visible to anyone\n"
         text += "outside this machine.\n"
         text += "\nYOUR OPTIONS\n"
-        text += "  Accept — you are happy. Closes the job. Still publishes nothing.\n"
+        text += f"  {describe_publish(order)}\n"
         text += "  Needs changes — send it back and stop the current attempt.\n"
         text += "  Pause — stop for now. Nothing is deleted.\n"
         text += f"\nFiles are on your machine at:\n  {record_path.parent}"
@@ -878,6 +940,43 @@ def status_report(conn, config):
     return "\n".join(lines)
 
 
+def describe_publish(order):
+    """One plain sentence naming what accepting will actually do."""
+    action = order.get("publish_action") or {}
+    if action.get("kind") != "commit":
+        return "Accept — you are happy. Closes the job and publishes nothing."
+    count = len(action.get("paths", []))
+    return (f"Accept — saves {count} file{'s' if count != 1 else ''} into "
+            f"{Path(order['workspace']).name} permanently. Still nothing online.")
+
+
+def perform_publish(order, row):
+    """Carry out the publish the work item declared, and nothing else.
+
+    Only the declared paths are committed. The card's fingerprint has already
+    proven the files are exactly as they were reviewed, so what is committed is
+    what was approved. It never pushes: leaving the machine is a separate grant
+    that nobody has given.
+    """
+    action = order.get("publish_action") or {}
+    if action.get("kind") != "commit":
+        return None
+    workspace = Path(order["workspace"]).resolve()
+    paths = action.get("paths") or []
+    if not paths:
+        raise ValueError("commit declared with no paths")
+    for candidate in paths:
+        target = (workspace / candidate).resolve()
+        if not str(target).startswith(str(workspace) + os.sep):
+            raise ValueError(f"path escapes the workspace: {candidate}")
+    git(workspace, "add", "--", *paths)
+    message = action.get("message") or f"{order['work_id']} (approved by TK through Milchik)"
+    git(workspace, "-c", "user.name=Milchik", "-c", "user.email=milchik@agent-os.invalid",
+        "commit", "-m", message, "--", *paths)
+    revision = git(workspace, "rev-parse", "--short", "HEAD").decode().strip()
+    return f"Saved as {revision} in {workspace.name}. Not pushed anywhere."
+
+
 def decide(conn, config, query):
     """Only authenticated, unexpired, single-use callbacks can accept a frozen result."""
     from hermes_cli import kanban_db as kb
@@ -929,7 +1028,19 @@ def decide(conn, config, query):
         if not ok:
             return "Task changed; inspect locally"
         conn.execute("UPDATE agent_os_orders SET phase='accepted' WHERE task_id=?", (task.id,))
-        result = "Local result accepted. No publish, merge, or deployment authorized."
+        result = "Accepted. Nothing published."
+        try:
+            order = json.loads(row["payload"])
+        except ValueError:
+            order = {}
+        try:
+            published = perform_publish(order, order_row(conn, task.id))
+            if published:
+                result = "Accepted. " + published
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            # The acceptance stands; only the publish failed. Saying otherwise
+            # would leave TK believing work was saved when it was not.
+            result = f"Accepted, but saving failed: {short(str(exc), 120)}"
     else:
         # Both actions stop further execution. Changes require a fresh bounded work order.
         conn.execute("UPDATE agent_os_orders SET revoked=1,phase=? WHERE task_id=?", (action,task.id))
@@ -1092,6 +1203,7 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
                 conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('offset',?)", (str(update['update_id']+1),))
             request_inspection(conn,state)
             read_inspection_verdicts(conn,state)
+            run_revisions(conn,state)
             collect_reviews(conn,state)
             if config["basis"] == "commit":
                 collect_commits(conn,config.get("repositories",{}))
