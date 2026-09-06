@@ -526,7 +526,7 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
             schema(conn)
             offset = conn.execute("SELECT value FROM telegram_meta WHERE key='offset'").fetchone()
             updates = api.call("getUpdates",offset=int(offset[0]) if offset else 0,
-                timeout=0,limit=25,allowed_updates=["callback_query","message"])
+                timeout=0,limit=25,allowed_updates=["callback_query","message","my_chat_member"])
             for update in updates:
                 if "callback_query" in update:
                     query = update["callback_query"]
@@ -545,6 +545,25 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
                                     reply_markup={"inline_keyboard":[]})
                             except TelegramError:
                                 pass
+                elif "my_chat_member" in update:
+                    # Fires when the bot is added to a group, and is delivered even
+                    # under privacy mode — unlike an ordinary group message. Adding
+                    # the bot is therefore enough to designate the monitor channel.
+                    membership = update["my_chat_member"]
+                    joined = (membership.get("new_chat_member") or {}).get("status") in {"member","administrator"}
+                    chat = membership.get("chat", {})
+                    if (joined and membership.get("from",{}).get("id") == config["user_id"]
+                            and not config.get("monitor_chat_id")
+                            and chat.get("type") in {"group","supergroup","channel"}
+                            and chat.get("id") != config["chat_id"]):
+                        config["monitor_chat_id"] = chat["id"]
+                        save_config(config)
+                        try:
+                            api.call("sendMessage",chat_id=config["chat_id"],
+                                text=f"Monitor channel paired: {short(chat.get('title','untitled'),80)} "
+                                     f"({chat['id']}). Read-only fleet lines go there; approvals stay here.")
+                        except TelegramError:
+                            pass
                 elif "message" in update:
                     # The ONLY text this bot acts on. Every other message is ignored:
                     # free-form Telegram text is not an agent prompt and grants no authority.
