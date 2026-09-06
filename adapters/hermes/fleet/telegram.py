@@ -341,11 +341,67 @@ def save_config(config, config_path=CONFIG):
     os.replace(temporary, target)
 
 
-def backlog_top(k=3):
-    """Top-ranked backlog items Milchik should surface, or None if unreadable.
+PROJECTS = (
+    ("ALVIRA",   "ALVIRA",       "tk-ap/ALVIRA"),
+    ("ASHWOOD",  "ashwood",      "tk-ap/ashwood-info"),
+    ("AGENT OS", "agent-os",     "tk-ap/agent-os"),
+)
 
-    Ranking decides attention, never execution: an item's authority state is
-    reported alongside it so a high rank is never mistaken for a go-ahead.
+
+def _run(args, cwd=None, timeout=20):
+    """Run a read-only command, returning stdout or None. Never raises."""
+    try:
+        done = subprocess.run(args, cwd=cwd, capture_output=True, timeout=timeout, check=True)
+        return done.stdout.decode(errors="replace")
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def project_state():
+    """Per-project PR and local-change facts, for the glanceable view.
+
+    Every field degrades to None rather than failing the report: an offline
+    workstation should still get task and backlog state.
+    """
+    states = []
+    for label, directory, slug in PROJECTS:
+        path = ROOT.parent / directory
+        if not (path / ".git").exists():
+            continue
+        state = {"label": label, "slug": slug, "prs": None, "commits": 0, "dirty": False}
+        raw = _run(["gh", "pr", "list", "-R", slug, "--state", "open",
+                    "--json", "number,title,headRefName,isDraft", "--limit", "20"])
+        if raw is not None:
+            try:
+                state["prs"] = json.loads(raw)
+            except ValueError:
+                state["prs"] = None
+        log = _run(["git", "log", "--since=24 hours ago", "--oneline"], cwd=path)
+        state["commits"] = len(log.strip().splitlines()) if log and log.strip() else 0
+        status = _run(["git", "status", "--porcelain"], cwd=path)
+        state["dirty"] = bool(status and status.strip())
+        states.append(state)
+    return states
+
+
+def overlaps(states):
+    """Branches with an open PR in more than one project.
+
+    A shared branch name across repositories is coordinated work spanning
+    products — the case worth surfacing, because nothing else in the system
+    shows it.
+    """
+    branches = {}
+    for state in states:
+        for pull in state["prs"] or []:
+            branches.setdefault(pull["headRefName"], set()).add(state["label"])
+    return {branch: sorted(labels) for branch, labels in branches.items() if len(labels) > 1}
+
+
+def backlog_top(k=3):
+    """Top-ranked open backlog items, or None if unreadable.
+
+    Ranking decides attention, never execution.
     """
     try:
         import yaml
@@ -358,75 +414,96 @@ def backlog_top(k=3):
         return [(item, backlog_runtime.attention_score(item),
                  backlog_runtime.authority_present(item)) for item in backlog_runtime.next_for_attention(open_items, k)]
     except Exception:
-        return None  # A status reply degrades rather than failing when the backlog is unavailable.
+        return None
 
 
 def status_report(conn, config):
-    """Milchik's founder view, answered on demand rather than pushed.
+    """Milchik's founder view: what is in flight, where, and what needs TK.
 
-    Reports recorded state and cites where each number came from. It starts
-    nothing, decides nothing, and grants nothing.
+    Written to be read at a glance and grouped by project, because the question
+    behind it is "what is happening across the businesses", not "what rows are
+    in the database".
 
-    Two rules from agents/milchik/IDENTITY.md shape what this may say: activity
-    is never reported as progress (§08), and every figure names the record it
-    came from (§12). Counts of running tasks are therefore labelled as recorded
-    state, not as work completed.
+    Two rules from agents/milchik/IDENTITY.md still bind: activity is never
+    reported as progress (§08), and figures name their source (§12) — collected
+    into one footer rather than annotating every line.
     """
     now = time.time()
-    lines = ["Mr. Milchik — status"]
+    lines = ["Mr. Milchik"]
 
-    counts = {r["status"]: r["c"] for r in conn.execute(
-        "SELECT status, count(*) c FROM tasks WHERE status IN ('running','review','blocked') GROUP BY status")}
-    lines.append(f"Fleet (recorded task state): running {counts.get('running',0)} · "
-                 f"in review {counts.get('review',0)} · blocked {counts.get('blocked',0)}")
-    lines.append("Recorded state only. Running is not progress and no worker self-report is counted here.")
+    states = project_state()
+    lines.append("")
+    for state in states:
+        prs = state["prs"]
+        if prs is None:
+            detail = "PRs unavailable"
+        elif prs:
+            ready = sum(1 for pull in prs if not pull.get("isDraft"))
+            detail = f"{len(prs)} open PR{'s' if len(prs) != 1 else ''} ({ready} ready, {len(prs)-ready} draft)"
+        else:
+            detail = "no open PRs"
+        marks = []
+        if state["commits"]:
+            marks.append(f"{state['commits']} commit{'s' if state['commits'] != 1 else ''} today")
+        if state["dirty"]:
+            marks.append("uncommitted")
+        bullet = "*" if (prs or state["commits"] or state["dirty"]) else "-"
+        lines.append(f"{bullet} {state['label']:<9} {detail}")
+        if marks:
+            lines.append(f"            {' · '.join(marks)}")
+
+    shared = overlaps(states)
+    concurrent = [state["label"] for state in states if state["commits"]]
+    if shared or len(concurrent) > 1:
+        lines.append("")
+        lines.append("OVERLAPPING REPOS")
+        for branch, labels in sorted(shared.items()):
+            # The precise signal: one branch carrying open PRs in two products.
+            lines.append(f"  {short(branch,44)}")
+            lines.append(f"    open in {' + '.join(labels)}")
+        if len(concurrent) > 1:
+            # The coarse one: several products moving the same day. Concurrent
+            # change is not necessarily related change — it is a prompt to look.
+            lines.append(f"  changed today: {', '.join(concurrent)}")
 
     awaiting = conn.execute("""SELECT task_id, message FROM telegram_cards
         WHERE channel='private' AND decision IS NULL AND delivery='sent'
           AND task_id IS NOT NULL AND expires > ? ORDER BY expires LIMIT 5""", (now,)).fetchall()
+    blocked = conn.execute("SELECT id, title FROM tasks WHERE status='blocked' ORDER BY started_at DESC LIMIT 5").fetchall()
+    counts = {r["status"]: r["c"] for r in conn.execute(
+        "SELECT status, count(*) c FROM tasks WHERE status IN ('running','review') GROUP BY status")}
+
     lines.append("")
-    lines.append(f"Awaiting your decision: {len(awaiting)}  [delivered cards, undecided, unexpired]")
+    lines.append(f"AWAITING YOU   {len(awaiting)}")
     for row in awaiting:
         body = row["message"].splitlines()
-        lines.append(f"• {short(body[1] if len(body) > 1 else row['task_id'], 90)}")
+        lines.append(f"  {short(body[1] if len(body) > 1 else row['task_id'], 60)}")
+    lines.append(f"BLOCKED        {len(blocked)}")
+    for row in blocked:
+        lines.append(f"  {short(row['title'] or row['id'], 60)}")
+    lines.append(f"FLEET          {counts.get('running',0)} running · {counts.get('review',0)} in review")
 
-    blocked = conn.execute("""SELECT id, title, block_kind FROM tasks
-        WHERE status='blocked' ORDER BY started_at DESC LIMIT 5""").fetchall()
-    if blocked:
+    ranked = backlog_top(2)
+    if ranked:
         lines.append("")
-        lines.append(f"Blocked: {len(blocked)}  [task record]")
-        for row in blocked:
-            lines.append(f"• {short(row['title'] or row['id'], 80)} ({row['block_kind'] or 'unspecified'})")
-
-    ranked = backlog_top()
-    lines.append("")
-    if ranked is None:
-        lines.append("Backlog: unavailable  [agents/milchik/backlog.yaml unreadable]")
-    elif not ranked:
-        lines.append("Backlog: empty")
-    else:
-        lines.append("Next for attention  [agents/milchik/backlog.yaml, ranked by runtime/backlog.py]")
-        for item, score, authorized in ranked:
-            gate = "pre-authorized" if authorized else f"needs approval ({item.get('status','proposed')})"
-            lines.append(f"• {score:.0f} {short(item.get('title', item.get('work_id','untitled')), 74)}")
-            lines.append(f"    {item.get('priority',{}).get('level','p3')} · {item.get('source','agent')} · {gate}")
-        lines.append("Ranking is attention, not authority. Nothing here is enqueued by being listed.")
-
-    changes = conn.execute("""SELECT product, kind, revision, summary FROM telegram_changes
-        ORDER BY id DESC LIMIT 5""").fetchall()
-    lines.append("")
-    lines.append("Recorded changes, newest first  [telegram_changes]" if changes else "Recorded changes: none")
-    for row in changes:
-        lines.append(f"• {row['product']} {row['kind']} {row['revision'][:12]} {short(row['summary'],80)}")
-    if changes:
-        lines.append("Commits are not deployments. A live-site change needs producer evidence.")
+        lines.append("NEXT UP")
+        for item, _score, authorized in ranked:
+            who = "yours" if authorized else "needs your approval"
+            lines.append(f"  {short(item.get('title', item.get('work_id','untitled')), 58)}")
+            lines.append(f"    {item.get('priority',{}).get('level','p3')} · {who}")
+    elif ranked is None:
+        lines.append("")
+        lines.append("NEXT UP        backlog unreadable")
 
     pending = {r["channel"]: r["c"] for r in conn.execute(
         "SELECT channel, count(*) c FROM telegram_cards WHERE delivery='pending' GROUP BY channel")}
     if pending.get("monitor") and not config.get("monitor_chat_id"):
         lines.append("")
-        lines.append(f"{pending['monitor']} monitor cards queued: monitor channel is not paired.")
+        lines.append(f"{pending['monitor']} monitor cards queued: channel not paired.")
 
+    lines.append("")
+    lines.append("Recorded state only; running is not progress. Commits are not deployments.")
+    lines.append("Sources: gh pr list · git log · review cards · milchik backlog.")
     return "\n".join(lines)
 
 
