@@ -30,12 +30,16 @@ with no buttons and no acceptance path.
 python /home/tk/Work/agent-os/adapters/hermes/fleet_cli.py telegram monitor
 ```
 
-Add the bot to the group, then **forward one message from that group into your
-private chat with the bot**. Sending a message directly in the group also works
-*if* the bot can see it — but `getMe` reports
-`can_read_all_group_messages: false`, so under default privacy mode it usually
-cannot. Forwarding carries the origin chat id regardless, and is the only path
-that also works for channels.
+**Adding the bot to the group is enough.** The membership change fires a
+`my_chat_member` update, which Telegram delivers even under privacy mode, and
+the tick captures the chat id from it.
+
+Two fallbacks, in order of reliability: forward one message from the group into
+your private chat (carries the origin chat id, and the only path that works for
+channels), or send a message directly in the group — which works only if the bot
+can see it. `getMe` reports `can_read_all_group_messages: false`, so under
+default privacy mode a non-admin bot cannot. Adding it as an administrator lifts
+that, and also lets `/status` work in the group.
 
 The fleet tick captures the designation; the `monitor` command prints the
 instructions and waits for it. **Do not pause the scheduler while pairing** —
@@ -129,8 +133,16 @@ Tests cover acceptance, identity/chat/message checks, replay, expiry, revocation
 modified files, change requests, deduplication, uncertain delivery, per-product
 thresholds, absence of network access when unconfigured, two-chat routing (monitor
 to group, private to TK, monitor held when unpaired), fleet-event once-only
-reporting, and drift/memory signal batching. The actual Telegram transport and
-on-device buttons remain unverified until pairing and a live test are completed.
+reporting, and drift/memory signal batching.
+
+Live transport is verified as of 2026-09-06: a message delivered to the private
+chat, a `/status` sent from Telegram and consumed by the tick (offset advanced
+735430119 to 735430120), the monitor group captured from a `my_chat_member`
+event, and a message delivered to that group.
+
+**On-device buttons remain unverified.** No card carrying Accept / Needs changes
+/ Pause has been delivered or pressed, because no fleet task has ever reached
+review — the acceptance path is covered by tests against mocks only.
 
 API behavior was checked against Telegram's official
 [Bot API](https://core.telegram.org/bots/api) and
