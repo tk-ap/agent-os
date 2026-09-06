@@ -29,14 +29,24 @@ Work is never shown to TK on the word of the single agent that produced it.
 ### 1. A check is requested (`request_inspection`)
 
 When a piece of work is marked finished, the system creates a separate checking
-job and gives it to W Dog. That job is:
+job and gives it to W Dog. The job carries instructions that tell W Dog to:
 
-- **read-only** — W Dog can open files but cannot change them, so it cannot
-  quietly fix the very thing it is meant to judge;
-- **high priority**, so it runs before the work sits waiting;
-- given its own list of things to confirm: say PASS or FAIL for every point the
-  original work was supposed to meet, name the file or output it looked at,
-  change nothing, and say what it could not check.
+- **change no files** — it is there to judge, not to produce. This is written
+  into the job as a rule, and confirming it changed nothing is one of the things
+  W Dog has to report back. It is an instruction, not a locked door: the job is
+  still given access to the files, and nothing in this code physically stops a
+  write. The safeguard is that W Dog is told not to and must say whether it kept
+  to that.
+- **not take the producer's word for it** — W Dog has to open what the work
+  claims to have changed and look for itself.
+- **say PASS or FAIL for every point** the original work was supposed to meet,
+  name the file or output it looked at for each one, and say what it could not
+  check.
+
+The checking job is also marked top priority — the highest level this system
+uses. That is a label on the job. Whether a top-priority job actually runs
+before other waiting work is decided by the queue, which is not part of these
+functions and is not described here.
 
 A checking job is itself a piece of work that finishes. The code will not create
 a check of a check, so this cannot loop forever.
