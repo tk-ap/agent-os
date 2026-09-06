@@ -499,7 +499,8 @@ def backlog_top(k=3):
         # `done` here rather than there leaves that scoring contract untouched.
         open_items = [item for item in items if item.get("status") != "done"]
         return [(item, backlog_runtime.attention_score(item),
-                 backlog_runtime.authority_present(item)) for item in backlog_runtime.next_for_attention(open_items, k)]
+                 backlog_runtime.authority_present(item),
+                 backlog_runtime.lane(item)) for item in backlog_runtime.next_for_attention(open_items, k)]
     except Exception:
         return None
 
@@ -574,10 +575,14 @@ def status_report(conn, config):
     if ranked:
         lines.append("")
         lines.append("NEXT UP")
-        for item, _score, authorized in ranked:
-            who = "yours" if authorized else "needs your approval"
+        for item, _score, authorized, item_lane in ranked:
+            who = "yours" if authorized else f"needs your approval ({item.get('status','proposed')})"
             lines.append(f"  {short(item.get('title', item.get('work_id','untitled')), 58)}")
-            lines.append(f"    {item.get('priority',{}).get('level','p3')} · {who}")
+            lines.append(f"    {item.get('priority',{}).get('level','p3')} · {item_lane} · {who}")
+        # A directive at the top means it outranked open ecosystem work, which is
+        # the soft gate being crossed rather than ignored. Say so.
+        if ranked and ranked[0][3] == "directive":
+            lines.append("  ^ directive ahead of ecosystem work — gate crossed on priority")
     elif ranked is None:
         lines.append("")
         lines.append("NEXT UP        backlog unreadable")

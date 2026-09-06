@@ -12,9 +12,30 @@
 # scores on priority and confidence alone, so a done item still ranks — it is
 # consumers that must exclude it (see backlog_top in the Telegram surface).
 # Completed items stay here as history rather than being deleted.
+#
+# Lane is a soft gate (runtime/backlog.py LANE_BONUS). `ecosystem` is backend
+# work on the operating layer itself and drains first; `directive` is product
+# work. Ecosystem carries +30, so any ecosystem item at p1 or above outranks any
+# directive, while a p0 directive still breaks through ahead of ecosystem p2/p3
+# rather than starving behind cleanup. Lane defaults to `ecosystem` when absent.
+#
+# ailhat directives enter here as ordinary entries with `source: ailhat` and
+# `lane: directive`, carrying a `source_ref` back to the live ailhat record so
+# the entry can be re-read rather than becoming a stale copy:
+#
+#   - work_id: <id>
+#     source: ailhat
+#     lane: directive
+#     status: proposed          # ailhat proposes; it does not authorize
+#     source_ref: {system: ailhat, id: <ailhat record id>, ref: <path or url>}
+#
+# ailhat is intelligence, not authority: authority_present is false for it, so
+# a directive is only eligible once it is explicitly `approved`. No ailhat
+# source is wired up yet — the shape is defined, the intake is not built.
 
 - work_id: alvira-discoverability-sitemap
   source: agent
+  lane: ecosystem
   status: done
   completed:
     at: 2026-09-06
@@ -38,6 +59,7 @@
 
 - work_id: milchik-two-chat-runtime
   source: human
+  lane: ecosystem
   status: done
   completed:
     at: 2026-09-06
@@ -68,6 +90,7 @@
 
 - work_id: promote-discoverability-audit-routine
   source: agent
+  lane: ecosystem
   status: proposed
   priority: {level: p2, confidence: 0.6}
   title: Promote discoverability-audit routine from DRAFT to REVIEWED (dry-run/PR mode)
@@ -77,6 +100,7 @@
 
 - work_id: routine-cost-cap-enforcement
   source: agent
+  lane: ecosystem
   status: proposed
   priority: {level: p2, confidence: 0.5}
   title: Implement cap enforcement (per-turn cost measurement + portfolio breaker)
@@ -87,6 +111,7 @@
 
 - work_id: contribution-articulation-policy
   source: human
+  lane: ecosystem
   status: approved
   priority: {level: p1, confidence: 1.0}
   title: Codify contribution/non-contribution articulation into HANDOFF_POLICY.md
