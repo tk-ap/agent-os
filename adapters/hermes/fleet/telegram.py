@@ -308,6 +308,39 @@ def collect_signals(conn):
     conn.executemany("UPDATE telegram_signals SET reported=1 WHERE id=?", [(r['id'],) for r in rows])
 
 
+def monitor_chat_of(message, private_id):
+    """The chat the founder is designating as the monitor channel, else (None, None).
+
+    Two ways in, because one of them cannot be relied on. Telegram privacy mode
+    stops a non-admin bot from receiving ordinary group messages at all, so
+    waiting for a direct group message can wait forever. Forwarding a message
+    from that group into the private chat carries the origin chat id regardless,
+    and is the only path that also works for channels.
+    """
+    chat = message.get("chat", {})
+    if chat.get("type") in {"group", "supergroup"} and chat.get("id") != private_id:
+        return chat["id"], chat.get("title", "untitled")
+    origin = message.get("forward_origin") or {}
+    if origin.get("type") in {"channel", "chat"}:
+        source = origin.get("chat", {})
+        if source.get("id") and source["id"] != private_id:
+            return source["id"], source.get("title", "untitled")
+    legacy = message.get("forward_from_chat") or {}
+    if legacy.get("type") in {"channel", "group", "supergroup"} and legacy.get("id") != private_id:
+        return legacy["id"], legacy.get("title", "untitled")
+    return None, None
+
+
+def save_config(config, config_path=CONFIG):
+    """Replace the config atomically, preserving its restrictive mode."""
+    target = Path(config_path)
+    temporary = target.with_suffix(".tmp")
+    fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        json.dump(config, handle, indent=2)
+    os.replace(temporary, target)
+
+
 def backlog_top(k=3):
     """Top-ranked backlog items Milchik should surface, or None if unreadable.
 
@@ -515,6 +548,21 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
                     body = str(message.get("text","")).strip().split("@")[0].lower()
                     sender = message.get("from",{}).get("id")
                     chat = message.get("chat",{}).get("id")
+                    if sender == config["user_id"] and not config.get("monitor_chat_id"):
+                        # Capture here rather than in a second poller. Confirming a
+                        # getUpdates offset makes Telegram forget earlier updates, so
+                        # any separate pairing process races this tick and loses.
+                        designated, title = monitor_chat_of(message, config["chat_id"])
+                        if designated:
+                            config["monitor_chat_id"] = designated
+                            save_config(config)
+                            try:
+                                api.call("sendMessage",chat_id=config["chat_id"],
+                                    text=f"Monitor channel paired: {short(title,80)} ({designated}). "
+                                         "This group receives read-only fleet lines. "
+                                         "Approvals stay in this private chat.")
+                            except TelegramError:
+                                pass
                     if body == "/status" and sender == config["user_id"] and chat in {
                             config["chat_id"], config.get("monitor_chat_id")}:
                         try:
@@ -575,39 +623,30 @@ def setup(every, basis):
 
 
 def pair_monitor():
-    """Capture the monitor group's chat_id into the existing config.
+    """Wait for the fleet tick to capture a monitor channel, and report the result.
 
-    Requires the bot already paired (setup done). The user adds the bot to a
-    Telegram group and sends any message; this polls for a non-private chat
-    update and records its id as monitor_chat_id. Never touches the token or
-    the private chat.
+    This no longer polls getUpdates. A second poller cannot coexist with the
+    minute tick: whichever confirms an offset first makes Telegram forget the
+    update the other is waiting for. The tick owns the poll; this command owns
+    the instructions and the wait.
     """
     if not CONFIG.exists():
         raise ValueError("Run setup first to pair the private chat")
-    config = json.loads(CONFIG.read_text())
-    if config.get("monitor_chat_id"):
+    if json.loads(CONFIG.read_text()).get("monitor_chat_id"):
         raise ValueError("Monitor channel already paired")
-    api = API(config["token"])
-    print("Add this bot to a Telegram GROUP, then send any message in that group.", flush=True)
-    print("Waiting up to 3 minutes to capture the group…", flush=True)
-    deadline, offset = time.monotonic() + 180, 0
+    print("Add the bot to the Telegram group, then do EITHER:", flush=True)
+    print("  • send any message in that group, or", flush=True)
+    print("  • forward a message from that group into your private chat with the bot.", flush=True)
+    print("Forwarding is the reliable one: privacy mode can stop the bot seeing group messages.", flush=True)
+    print("The next fleet tick captures it. Waiting up to 3 minutes…", flush=True)
+    deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
-        updates = api.call("getUpdates", offset=offset, timeout=0,
-                           allowed_updates=["message", "my_chat_member"])
-        for update in updates:
-            offset = update["update_id"] + 1
-            message = update.get("message", {}) or update.get("my_chat_member", {})
-            chat = message.get("chat", {})
-            if chat.get("type") not in {"group", "supergroup"} or chat.get("id") == config["chat_id"]:
-                continue
-            config["monitor_chat_id"] = chat["id"]
-            fd = os.open(CONFIG, os.O_WRONLY | os.O_TRUNC)
-            with os.fdopen(fd, "w") as handle:
-                json.dump(config, handle, indent=2)
-            print(f"Monitor channel paired: {chat.get('title', 'untitled')} ({chat['id']})")
+        config = json.loads(CONFIG.read_text())
+        if config.get("monitor_chat_id"):
+            print(f"Monitor channel paired: {config['monitor_chat_id']}")
             return
-        time.sleep(2)
-    raise TimeoutError("No group message seen; add the bot to a group and send a message")
+        time.sleep(3)
+    raise TimeoutError("Nothing captured. Confirm the fleet tick is running: hermes cron list")
 
 
 def main():
