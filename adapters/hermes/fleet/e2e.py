@@ -52,7 +52,9 @@ elif "TK-approved scoped authority" in prompt:
     checkpoint = {"summary": summary, "completed": ["fixture step"], "remaining": [],
                   "artifacts": [], "verification": ["fixture check"],
                   "status": "ready_for_review",
-                  "proposal": {"owning_agent": "eugene", "priority": "p1", "lane": "ecosystem"}}
+                  "proposal": {"owning_agent": "eugene", "priority": "p1",
+                               "lane": "ecosystem", "product": "agent-os-workforce",
+                               "capabilities": ["filesystem"]}}
 else:
     # First run parks at a protected boundary: the harness needs authority it
     # does not have, so it requests a scoped grant instead of acting.
@@ -134,8 +136,12 @@ def run_offline_e2e(root=None, user_id=900000001):
         "repositories": {}, "monitor_chat_id": monitor_id}))
 
     # The directive workspace is telegram.ROOT. Point it at a throwaway git
-    # repo so the real checkout is never touched by fixture checkpoints.
+    # repo so the real checkout is never touched by fixture checkpoints. The
+    # fleet config is likewise redirected so local_repositories() reads the
+    # test's product map, not the host's.
     original_root = telegram.ROOT
+    original_config = telegram.CONFIG
+    telegram.CONFIG = config_path
     workspace = root or Path(base / "workspace")
     if root is None:
         workspace.mkdir()
@@ -304,6 +310,7 @@ def run_offline_e2e(root=None, user_id=900000001):
         os.environ.clear()
         os.environ.update(old_env)
         telegram.ROOT = original_root
+        telegram.CONFIG = original_config
         temp.cleanup()
     return results
 
