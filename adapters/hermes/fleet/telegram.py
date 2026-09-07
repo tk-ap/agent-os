@@ -947,6 +947,57 @@ def record_change(conn, product, kind, revision, summary):
                  (product,kind,revision,short(summary)))
 
 
+CTO_COMMIT_AUTHORS = {"tk-ap", "tahlia ashwood", "milchik", "cto", "cto-bot"}
+
+
+def _cto_commit(path, revision):
+    """A commit counts as cto-bot work when its author is a cto persona or a
+    Co-Authored-By trailer names an agent harness."""
+    try:
+        name = git(path, "show", "-s", "--format=%an", revision).decode(errors="replace").strip().lower()
+        email = git(path, "show", "-s", "--format=%ae", revision).decode(errors="replace").strip().lower()
+        body = git(path, "show", "-s", "--format=%b", revision).decode(errors="replace").lower()
+    except subprocess.CalledProcessError:
+        return False
+    if name in CTO_COMMIT_AUTHORS or any(token in email for token in ("tk-ap", "tahlia", "milchik")):
+        return True
+    return bool(re.search(r"co-authored-by:.*(codex|claude|opencode|hermes|gemini|cto)", body))
+
+
+def mirror_cto_commit(conn, product, path, revision, subject):
+    """Board row for cto-bot completed work: the Kanban shows everything the
+    workforce and the cto harnesses have done, not just fleet orders."""
+    from hermes_cli import kanban_db as kb
+    if not _cto_commit(path, revision):
+        return None
+    task_id = kb.create_task(conn, title=f"[{product}] {subject}"[:140],
+        body=json.dumps({"origin": "cto-bot", "product": product,
+                         "repository": str(path), "revision": revision}),
+        assignee="cto-bot", created_by="agent-os",
+        workspace_kind="dir", workspace_path=str(path),
+        initial_status="blocked", idempotency_key="cto-commit:" + revision,
+        max_runtime_seconds=60, max_retries=0)
+    kb.complete_task(conn, task_id,
+                     summary=f"Committed to {product}: {subject[:180]}",
+                     result="committed", fire_lifecycle_hook=False)
+    return task_id
+
+
+def backfill_cto_commits(conn, repositories, count=20):
+    """One-time/repair import of the last N commits per product repo."""
+    imported = 0
+    for product, path in repositories.items():
+        try:
+            revisions = git(path, "rev-list", f"-n{count}", "HEAD").decode().splitlines()
+        except subprocess.CalledProcessError:
+            continue
+        for revision in revisions:
+            subject = git(path, "show", "-s", "--format=%s", revision).decode().strip()
+            if mirror_cto_commit(conn, product, path, revision, subject):
+                imported += 1
+    return imported
+
+
 def collect_commits(conn, repositories):
     for product, path in repositories.items():
         key = "git:" + product
@@ -960,6 +1011,7 @@ def collect_commits(conn, repositories):
                 for revision in revisions:
                     subject = git(path,"show","-s","--format=%s",revision).decode().strip()
                     record_change(conn,product,"commit",revision,subject)
+                    mirror_cto_commit(conn, product, path, revision, subject)
             except subprocess.CalledProcessError:
                 pass
         conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES (?,?)", (key,head))

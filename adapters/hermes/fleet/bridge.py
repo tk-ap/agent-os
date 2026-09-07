@@ -131,6 +131,44 @@ def validate(order):
     return workspace
 
 
+def human_title(order):
+    """Plain-language board title: what, on which product, by whom — never a
+    raw work_id. TK reads the board without decoding runtime terminology."""
+    product = order.get("owning_product") or "agent-os-workforce"
+    agent = (order.get("owning_agent") or "").strip()
+    work_id = order.get("work_id") or ""
+    problem = order.get("problem_or_opportunity") or {}
+    directive = ""
+    if isinstance(problem, dict):
+        directive = problem.get("directive") or problem.get("statement") or ""
+    first = str(directive).strip().splitlines()[0].strip() if directive else ""
+    if not first:
+        first = work_id.replace("-", " ")
+    if work_id.endswith("-routing"):
+        label = f"{product}: assign someone to — {first}"
+    elif work_id.endswith("-inspection"):
+        label = f"{product}: independent review — {first}"
+    else:
+        label = f"{product}: {first}"
+    if agent and agent != "router":
+        label += f" · {agent}"
+    return label[:140]
+
+
+def human_body(order):
+    """Human summary up top, machine record below — both readable, both kept."""
+    problem = order.get("problem_or_opportunity") or {}
+    directive = ""
+    if isinstance(problem, dict):
+        directive = problem.get("directive") or problem.get("statement") or ""
+    lines = [
+        "What: " + (str(directive).splitlines()[0][:220] if directive else str(order.get("work_id", ""))),
+        "Who: " + str(order.get("owning_agent") or "unassigned"),
+        "Product: " + str(order.get("owning_product") or "agent-os-workforce"),
+    ]
+    return "\n".join(lines) + "\n\nTechnical record:\n" + json.dumps(order)
+
+
 def enqueue(state, order, authority, expires_in=86400, selected=harnesses.SUPPORTED,
             max_attempts=6, timeout=900):
     from hermes_cli import kanban_db as kb
@@ -170,8 +208,8 @@ def enqueue(state, order, authority, expires_in=86400, selected=harnesses.SUPPOR
                 if existing["digest"] != digest(order):
                     raise ValueError("work_id already exists with different content")
                 return existing["task_id"]
-            task_id = kb.create_task(conn, title=order["work_id"],
-                body=json.dumps(order), assignee="default", created_by="agent-os",
+            task_id = kb.create_task(conn, title=human_title(order),
+                body=human_body(order), assignee="default", created_by="agent-os",
                 workspace_kind="dir", workspace_path=str(workspace),
                 initial_status="blocked", idempotency_key="agent-os:" + order["work_id"],
                 max_runtime_seconds=timeout * max_attempts + 120, max_retries=2)

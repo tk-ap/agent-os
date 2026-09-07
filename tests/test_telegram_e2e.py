@@ -9,6 +9,7 @@ items, provenance stamping, and fail-closed dispatch rejection.
 import json
 from pathlib import Path
 import subprocess
+import tempfile
 import time
 import unittest
 from unittest.mock import patch
@@ -573,6 +574,73 @@ class BacklogBoardTests(unittest.TestCase):
         with self.assertRaises(ValueError) as caught:
             bridge.enqueue(self.state, order, "test authority")
         self.assertIn("live", str(caught.exception))
+
+
+@unittest.skipIf(kb is None, "Requires installed Hermes environment")
+class CtoBotTrackingTests(unittest.TestCase):
+    """cto-bot commit work mirrors onto the board as completed tasks."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp.name)
+        self.state = self.base / "state"
+        self.state.mkdir()
+        self.repo = self.base / "product"
+        self.repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        self.conn = bridge.connect(self.state)
+
+    def tearDown(self):
+        self.conn.close()
+        self.temp.cleanup()
+
+    def _commit(self, name, email, subject, trailer=None):
+        msg = ["-m", subject]
+        if trailer:
+            msg += ["-m", trailer]
+        subprocess.run(["git", "-C", str(self.repo),
+                        "-c", f"user.name={name}", "-c", f"user.email={email}",
+                        "commit", "--allow-empty"] + msg, check=True,
+                       capture_output=True)
+        return subprocess.run(["git", "-C", str(self.repo), "rev-parse", "HEAD"],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def _board_rows(self):
+        return {t.title for t in
+                self.conn.execute("SELECT title FROM tasks").fetchall()}
+
+    def test_cto_persona_commit_mirrors_done_row(self):
+        rev = self._commit("Tahlia Ashwood", "tahlia.ashwood@gmail.com",
+                           "docs: canonical context onboarding model")
+        telegram.mirror_cto_commit(self.conn, "alvira-meos", self.repo, rev,
+                                   "docs: canonical context onboarding model")
+        rows = self.conn.execute("SELECT * FROM tasks").fetchall()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "done")
+        self.assertIn("[alvira-meos]", rows[0]["title"])
+
+    def test_agent_trailer_counts_as_cto_work(self):
+        rev = self._commit("Some Operator", "someone@example.com", "fix: thing",
+                           trailer="Co-Authored-By: Claude Code <noreply@anthropic.com>")
+        self.assertIsNotNone(telegram.mirror_cto_commit(
+            self.conn, "ashwood", self.repo, rev, "fix: thing"))
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 1)
+
+    def test_unrelated_author_not_mirrored(self):
+        rev = self._commit("Random Person", "random@example.com", "chore: thing")
+        self.assertIsNone(telegram.mirror_cto_commit(
+            self.conn, "ashwood", self.repo, rev, "chore: thing"))
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 0)
+
+    def test_mirror_is_idempotent_per_revision(self):
+        rev = self._commit("tk-ap", "164285623+tk-ap@users.noreply.github.com",
+                           "feat: something")
+        telegram.mirror_cto_commit(self.conn, "ashwood", self.repo, rev, "feat: something")
+        telegram.mirror_cto_commit(self.conn, "ashwood", self.repo, rev, "feat: something")
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 1)
 
 
 if __name__ == "__main__":
