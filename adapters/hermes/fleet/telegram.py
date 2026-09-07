@@ -1165,9 +1165,17 @@ def perform_publish(order, row, chosen="accept"):
         if current != branch:
             raise ValueError(f"declared branch {branch} but the workspace is on {current}")
     git(workspace, "add", "--", *paths)
-    message = action.get("message") or f"{order['work_id']} (approved by TK through Milchik)"
-    git(workspace, "-c", "user.name=Milchik", "-c", "user.email=milchik@agent-os.invalid",
-        "commit", "-m", message, "--", *paths)
+    # Already committed is not an error. Pressing save and then publish is the
+    # normal two-step, and the second press must still be able to publish.
+    try:
+        git(workspace, "diff", "--cached", "--quiet", "--", *paths)
+        staged = False
+    except subprocess.CalledProcessError:
+        staged = True
+    if staged:
+        message = action.get("message") or f"{order['work_id']} (approved by TK through Milchik)"
+        git(workspace, "-c", "user.name=Milchik", "-c", "user.email=milchik@agent-os.invalid",
+            "commit", "-m", message, "--", *paths)
     revision = git(workspace, "rev-parse", "--short", "HEAD").decode().strip()
     if chosen != "deploy":
         return f"Saved as {revision} in {workspace.name}. Not published anywhere."
