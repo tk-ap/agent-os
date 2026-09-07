@@ -398,6 +398,49 @@ def worker(state, task_id, run_id, runner=run_cli):
         conn.close()
 
 
+def propose(state, order, authority, contributions, non_contributions):
+    """Put work that is already done into the review lane.
+
+    Changes made directly on the workstation — by TK, or by an assistant working
+    beside him — skipped the approval loop entirely: they were simply committed.
+    This routes them through the same path as fleet work, so the only difference
+    between an agent's change and a hand-made one is who typed it.
+
+    No worker runs. The artifact already exists in the working tree; what is
+    missing is the independent check and TK's decision, and both of those attach
+    to the review lane rather than to the act of producing.
+    """
+    from hermes_cli import kanban_db as kb
+    state = Path(state).resolve()
+    task_id = enqueue(state, order, authority=authority)
+    conn = connect(state)
+    try:
+        with lock(state / "enqueue.lock"):
+            folder = state / task_id
+            folder.mkdir(parents=True, exist_ok=True)
+            atomic_json(folder / "1.json", {
+                "harness": "worked-in-place",
+                "result": "executed",
+                "started_at": time.time(),
+                "finished_at": time.time(),
+                "after": snapshot(Path(order["workspace"])),
+                "checkpoint_text": json.dumps({
+                    "summary": contributions,
+                    "contributions": contributions,
+                    "non_contributions": non_contributions,
+                    "verification": "None claimed. This work was made in place, not by a worker.",
+                }),
+            })
+            conn.execute("UPDATE agent_os_orders SET phase='review',attempts=1 WHERE task_id=?", (task_id,))
+            emit(conn, task_id, "phase", {"phase": "review"})
+            kb.request_review(conn, task_id, summary="Made in place; acceptance requires review",
+                metadata={"evidence": str(folder), "harness": "worked-in-place"},
+                reviewer="agent-os-review")
+        return task_id
+    finally:
+        conn.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
@@ -410,6 +453,17 @@ def main():
     add.add_argument("--max-attempts", type=int, default=6)
     add.add_argument("--timeout", type=int, default=900)
     sub.add_parser("status")
+    prop = sub.add_parser("propose")
+    prop.add_argument("--agent", required=True)
+    prop.add_argument("--workspace", required=True)
+    prop.add_argument("--product", default="agent-os-workforce")
+    prop.add_argument("--what", required=True, help="What was done")
+    prop.add_argument("--why", required=True, help="Why it was done")
+    prop.add_argument("--not-done", default="", help="What was deliberately left alone")
+    prop.add_argument("--accept", action="append", required=True, help="Acceptance criterion (repeatable)")
+    prop.add_argument("--commit", action="append", default=[], help="File to commit on approval (repeatable)")
+    prop.add_argument("--message", default="", help="Commit message")
+    prop.add_argument("--work-id", required=True)
     tick_parser = sub.add_parser("tick")
     tick_parser.add_argument("--dry-run", action="store_true")
     run = sub.add_parser("worker")
@@ -418,6 +472,30 @@ def main():
     revoke = sub.add_parser("revoke")
     revoke.add_argument("task_id")
     args = parser.parse_args()
+    if args.action == "propose":
+        order = {
+            "work_id": args.work_id,
+            "routing_source": "registry/product-routing.yaml",
+            "source_product": args.product,
+            "owning_product": args.product,
+            "owning_agent": args.agent,
+            "workspace": args.workspace,
+            "problem_or_opportunity": {"statement": args.why},
+            "priority": {"level": "p2", "confidence": 1.0},
+            "desired_outcome": {"artifact": args.what},
+            "required_capabilities": ["filesystem"],
+            "constraints": {"made_in_place": "The change already exists in the working tree."},
+            "acceptance_criteria": args.accept,
+            "status": "approved",
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        if args.commit:
+            order["publish_action"] = {"kind": "commit", "paths": args.commit,
+                                       "message": args.message or args.work_id}
+        print(propose(args.state, order, authority=f"made-in-place:{args.agent}",
+                      contributions=args.what,
+                      non_contributions=args.not_done or "Not stated."))
+        return
     if args.action == "enqueue":
         print(enqueue(args.state, json.loads(args.work_item.read_text()), args.authority,
             args.expires_in, args.harnesses, args.max_attempts, args.timeout))
