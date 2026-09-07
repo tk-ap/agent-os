@@ -105,6 +105,9 @@ def schema(conn):
             id INTEGER PRIMARY KEY, ts REAL NOT NULL, text TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'captured', task_id TEXT
         );
+        CREATE TABLE IF NOT EXISTS backlog_board_map (
+            work_id TEXT PRIMARY KEY, task_id TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS telegram_signals (
             id INTEGER PRIMARY KEY, ts REAL NOT NULL, scope TEXT NOT NULL,
             polarity TEXT NOT NULL, text TEXT NOT NULL, reported INTEGER NOT NULL DEFAULT 0
@@ -129,6 +132,9 @@ def migrate(conn):
         # A verdict is only about the files it was given. Without the snapshot it
         # was formed against, a later change silently inherits an old approval.
         "agent_os_inspections": {"snapshot": "TEXT"},
+        # A directive started from the backlog via /next carries the backlog
+        # work_id so the routed order can be stamped with board provenance.
+        "telegram_directives": {"backlog_work_id": "TEXT"},
     }
     for table, columns in additions.items():
         present = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
@@ -752,7 +758,22 @@ def route_directives(conn, state, now=None):
     """
     from .bridge import enqueue
     stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now or time.time()))
-    for row in conn.execute("SELECT id, text FROM telegram_directives WHERE status='captured' ORDER BY id").fetchall():
+    for row in conn.execute(
+            "SELECT id, text, backlog_work_id FROM telegram_directives WHERE status='captured' ORDER BY id").fetchall():
+        problem = {
+            "statement": "A directive from TK has no owner, priority, or lane.",
+            "directive": row["text"],
+            "captured_as": f"telegram_directives#{row['id']}",
+        }
+        # Backlog-started work carries canonical board provenance. The board row
+        # is the sync mirror; enqueue rejects the order if it is missing or done.
+        if row["backlog_work_id"]:
+            board = conn.execute("SELECT task_id FROM backlog_board_map WHERE work_id=?",
+                                 (row["backlog_work_id"],)).fetchone()
+            problem["origin"] = "autonomous_backlog"
+            problem["backlog_system"] = "hermes-kanban"
+            problem["backlog_work_id"] = row["backlog_work_id"]
+            problem["board_item_id"] = board[0] if board else None
         order = {
             "work_id": f"directive-{row['id']}-routing",
             "routing_source": "registry/product-routing.yaml",
@@ -760,11 +781,7 @@ def route_directives(conn, state, now=None):
             "owning_product": "agent-os-workforce",
             "owning_agent": "router",
             "workspace": str(ROOT),
-            "problem_or_opportunity": {
-                "statement": "A directive from TK has no owner, priority, or lane.",
-                "directive": row["text"],
-                "captured_as": f"telegram_directives#{row['id']}",
-            },
+            "problem_or_opportunity": problem,
             "priority": {"level": "p1", "confidence": 1.0},
             "desired_outcome": {
                 "proposal": "One owning agent, a priority level, a lane, and the reasoning for each.",
@@ -1045,6 +1062,61 @@ def eligible_backlog_item():
             return item, None
     return None, ("Nothing in the backlog is cleared to start. The top items are "
                   "proposals waiting on your approval.")
+
+
+def sync_backlog_to_board(conn):
+    """Mirror open backlog items onto the Hermes Kanban board.
+
+    The board is the canonical executable backlog
+    (docs/proposals/MILCHIK_HERMES_KANBAN_CONTROL.md). backlog.yaml remains
+    Milchik's auditable ranking model; this keeps one blocked board row per
+    open item so backlog work always has canonical board provenance and the
+    board's priority column mirrors the ranking. Mirror rows are blocked —
+    the fleet dispatcher only claims tasks with an agent_os_orders row, so a
+    mirror row is a queue record, never a dispatch unit. When backlog.yaml
+    marks an item done, its mirror row is closed.
+    """
+    from hermes_cli import kanban_db as kb
+    try:
+        import yaml
+        from runtime import backlog as backlog_runtime
+        items = yaml.safe_load((ROOT / "agents/milchik/backlog.yaml").read_text()) or []
+    except (OSError, ImportError):
+        return {"synced": 0, "closed": 0}
+    open_by_id = {item["work_id"]: item for item in items if item.get("status") != "done"}
+    synced = closed = 0
+    for work_id, task_id in conn.execute(
+            "SELECT work_id, task_id FROM backlog_board_map").fetchall():
+        if work_id not in open_by_id:
+            task = kb.get_task(conn, task_id)
+            if task is not None and task.status != "done":
+                kb.complete_task(conn, task_id,
+                    result="Backlog item completed or removed from backlog.yaml",
+                    summary="Mirror row closed by backlog sync.")
+                closed += 1
+    for work_id, item in open_by_id.items():
+        score = int(backlog_runtime.attention_score(item))
+        existing = conn.execute(
+            "SELECT task_id FROM backlog_board_map WHERE work_id=?", (work_id,)).fetchone()
+        if existing:
+            task = kb.get_task(conn, existing[0])
+            if task is None:
+                conn.execute("DELETE FROM backlog_board_map WHERE work_id=?", (work_id,))
+                existing = None
+        if not existing:
+            task_id = kb.create_task(conn, title=work_id, body=json.dumps(item),
+                assignee="milchik", created_by="agent-os-backlog-sync",
+                workspace_kind="dir", workspace_path=str(ROOT),
+                idempotency_key="agent-os-backlog:" + work_id,
+                max_runtime_seconds=120, max_retries=0, initial_status="blocked")
+            conn.execute("INSERT OR REPLACE INTO backlog_board_map(work_id,task_id) VALUES (?,?)",
+                         (work_id, task_id))
+            synced += 1
+        else:
+            task_id = existing[0]
+        conn.execute("UPDATE tasks SET priority=? WHERE id=?", (score, task_id))
+    conn.commit()
+    return {"synced": synced, "closed": closed}
 
 
 def status_report(conn, config):
@@ -1553,8 +1625,9 @@ def handle_update(conn, config, api, update):
                 reply = refusal
             else:
                 problem = item.get("problem") or item.get("title", "")
-                conn.execute("INSERT INTO telegram_directives(ts,text) VALUES (?,?)",
-                             (time.time(), short("%s\n\n%s" % (item.get("title", ""), problem), 2000)))
+                conn.execute("INSERT INTO telegram_directives(ts,text,backlog_work_id) VALUES (?,?,?)",
+                             (time.time(), short("%s\n\n%s" % (item.get("title", ""), problem), 2000),
+                              item.get("work_id")))
                 number = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                 reply = ("Starting #%d: %s\n\nPicked because it is %s and %s. "
                          "Routing it now — I will come back when someone needs to decide something."
@@ -1675,6 +1748,7 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
                 collect_commits(conn,config.get("repositories",{}))
             collect_batches(conn,config["every"],config["basis"])
             collect_fleet(conn)
+            sync_backlog_to_board(conn)
             route_directives(conn,state)
             collect_contributions(conn,state)
             collect_signals(conn)
@@ -1759,6 +1833,7 @@ def main():
     sub.add_parser("monitor")
     sub.add_parser("preview")
     sub.add_parser("listen")
+    sub.add_parser("e2e")
     change = sub.add_parser("record-change")
     change.add_argument("--product",required=True)
     change.add_argument("--kind",choices=["commit","deployment"],required=True)
@@ -1781,6 +1856,9 @@ def main():
     if args.action == "listen":
         print(json.dumps(listen()))
         return
+    if args.action == "e2e":
+        from .e2e import main as e2e_main
+        raise SystemExit(e2e_main())
     if args.action == "monitor":
         try:
             pair_monitor()

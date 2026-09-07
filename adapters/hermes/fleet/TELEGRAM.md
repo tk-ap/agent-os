@@ -111,6 +111,38 @@ revision loop gave up — those stop until he acts. Commit digests, drift signal
 fleet lifecycle and contribution reports all go to the group, because the work
 continues whether or not he reads them.
 
+## Canonical board provenance
+
+The Hermes Kanban board is the canonical executable backlog
+(`docs/proposals/MILCHIK_HERMES_KANBAN_CONTROL.md`). Every minute the tick
+mirrors open `agents/milchik/backlog.yaml` items onto the board as blocked
+rows with the ranking score as board priority, so backlog work always has a
+board representation. A row's status tracks the YAML: an item marked `done`
+closes its mirror row.
+
+Work started from the backlog via `/next` carries provenance in its routed
+order — `origin: autonomous_backlog`, `backlog_system: hermes-kanban`,
+`board_item_id` — and `bridge.enqueue()` fails closed: an autonomous-backlog
+order whose board row is missing or already done is rejected, never queued.
+A plain chat directive is human-triggered and needs no backlog provenance;
+its board row is created at enqueue either way.
+
+## End-to-end check
+
+The whole Milchik path can be checked offline — real tick/dispatch/decide
+code, a fake Telegram transport, and fixture harness executables instead of
+models. It drives directive → board row → worker → W Dog inspection → review
+card → accept → done, and asserts the monitor channel got read-only lines
+with no approval buttons:
+
+```bash
+python /home/tk/Work/agent-os/adapters/hermes/fleet_cli.py telegram e2e
+```
+
+Same scenario as a test: `python -m unittest tests.test_telegram_e2e -v`
+under Hermes's venv with Agent OS and Hermes on `PYTHONPATH`. Run it after
+any change to the tick, bridge, or decide path.
+
 ## Giving a directive
 
 Prefix it: `> ship the sitemap fix` or `/do ship the sitemap fix`, in the private

@@ -128,6 +128,15 @@ def enqueue(state, order, authority, expires_in=86400, selected=harnesses.SUPPOR
     conn = connect(state)
     try:
         with lock(state / "enqueue.lock"):
+            provenance = order.get("problem_or_opportunity", {})
+            if provenance.get("origin") == "autonomous_backlog":
+                board_item_id = provenance.get("board_item_id")
+                if not board_item_id:
+                    raise ValueError("autonomous_backlog origin requires a canonical board_item_id")
+                board_task = kb.get_task(conn, board_item_id)
+                if board_task is None or board_task.status == "done":
+                    raise ValueError("autonomous backlog work must reference a live, "
+                                     "non-done Hermes Kanban board item")
             existing = conn.execute("SELECT * FROM agent_os_orders WHERE work_id=?", (order["work_id"],)).fetchone()
             if existing:
                 if existing["digest"] != digest(order):
