@@ -161,9 +161,19 @@ class RoutingAcceptanceTests(unittest.TestCase):
         row = bridge.order_row(conn, "t-routing")
         return conn, row, directive_id
 
+    def _config_with_repos(self, repositories):
+        config = self.root / "telegram-config.json"
+        config.write_text(json.dumps({"token": "x", "repositories": repositories}))
+        self.patch = patch.object(telegram, "CONFIG", config)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+        return config
+
     def test_valid_proposal_enqueues_directed_work_and_closes_directive(self):
+        self._config_with_repos({"agent-os-workforce": str(self.workspace)})
         conn, row, directive_id = self._routing(
-            {"owning_agent": "eugene", "priority": "p1", "lane": "ecosystem"})
+            {"owning_agent": "eugene", "priority": "p1", "lane": "ecosystem",
+             "product": "agent-os-workforce", "capabilities": ["filesystem"]})
         try:
             task_id, agent, problem = telegram.enqueue_directed_work(conn, self.state, row)
             self.assertIsNotNone(task_id)
@@ -171,7 +181,10 @@ class RoutingAcceptanceTests(unittest.TestCase):
             self.assertEqual(agent, "eugene")
             work = bridge.order_row(conn, task_id)
             self.assertEqual(work["owning_agent"], "eugene")
-            self.assertIn("ship the sitemap fix", json.loads(work["payload"])["problem_or_opportunity"]["directive"])
+            payload = json.loads(work["payload"])
+            self.assertEqual(payload["owning_product"], "agent-os-workforce")
+            self.assertEqual(payload["workspace"], str(self.workspace))
+            self.assertIn("ship the sitemap fix", payload["problem_or_opportunity"]["directive"])
             directive = conn.execute("SELECT status, task_id FROM telegram_directives WHERE id=?",
                                      (directive_id,)).fetchone()
             self.assertEqual(directive["status"], "closed")
@@ -179,7 +192,32 @@ class RoutingAcceptanceTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_product_without_local_workspace_is_refused(self):
+        self._config_with_repos({})
+        conn, row, _directive_id = self._routing(
+            {"owning_agent": "eugene", "priority": "p1", "lane": "directive",
+             "product": "alvira-meos", "capabilities": ["git"]})
+        try:
+            task_id, agent, problem = telegram.enqueue_directed_work(conn, self.state, row)
+            self.assertIsNone(task_id)
+            self.assertIn("no local workspace", problem)
+        finally:
+            conn.close()
+
+    def test_unknown_product_never_enqueues(self):
+        self._config_with_repos({"agent-os-workforce": str(self.workspace)})
+        conn, row, _directive_id = self._routing(
+            {"owning_agent": "eugene", "priority": "p1", "lane": "directive",
+             "product": "not-a-product"})
+        try:
+            task_id, agent, problem = telegram.enqueue_directed_work(conn, self.state, row)
+            self.assertIsNone(task_id)
+            self.assertIn("not in the registry", problem)
+        finally:
+            conn.close()
+
     def test_unknown_agent_never_enqueues(self):
+        self._config_with_repos({"agent-os-workforce": str(self.workspace)})
         conn, row, _directive_id = self._routing(
             {"owning_agent": "nobody", "priority": "p1", "lane": "ecosystem"})
         try:

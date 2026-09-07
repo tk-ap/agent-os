@@ -727,6 +727,21 @@ def collect_collisions(conn):
             (secrets.token_urlsafe(12), key, row["task_id"], None, time.time()+86400, text))
 
 
+def local_repositories():
+    """Product → local clone paths, from the fleet config (host-specific).
+
+    This is the operational mapping the fleet already maintains for change
+    digests; a product with no local path is not runnable on this host, and
+    directed work for it must be refused rather than pointed anywhere else.
+    """
+    try:
+        config = json.loads(Path(CONFIG).read_text())
+    except (OSError, ValueError):
+        return {}
+    repos = config.get("repositories") or {}
+    return {k: str(v) for k, v in repos.items() if v}
+
+
 def enqueue_directed_work(conn, state, routing_row):
     """Turn an accepted routing proposal into the governed work item it proposed.
 
@@ -748,6 +763,8 @@ def enqueue_directed_work(conn, state, routing_row):
     agent = proposal.get("owning_agent")
     priority = proposal.get("priority")
     lane = proposal.get("lane")
+    product = proposal.get("product") or "agent-os-workforce"
+    capabilities = proposal.get("capabilities") or ["filesystem"]
     import yaml
     from .bridge import ROOT as bridge_root
     known = yaml.safe_load((bridge_root / "registry/agents.yaml").read_text())["agents"]
@@ -757,6 +774,19 @@ def enqueue_directed_work(conn, state, routing_row):
         return None, None, "the proposal has no valid priority"
     if lane not in {"ecosystem", "directive"}:
         return None, None, "the proposal has no valid lane"
+    if not set(capabilities) <= {"filesystem", "git", "shell"}:
+        return None, None, "the proposal declares unsupported capabilities"
+    products = yaml.safe_load((bridge_root / "registry/product-routing.yaml").read_text())["products"]
+    if product != "agent-os-workforce" and product not in products:
+        return None, None, f"proposed product {product!r} is not in the registry"
+    # Product work must resolve to the product's own local clone, never the
+    # operating-layer checkout. Host-specific paths come from the fleet config.
+    if product == "agent-os-workforce":
+        workspace = local_repositories().get(product) or str(ROOT)
+    else:
+        workspace = local_repositories().get(product)
+    if workspace is None:
+        return None, None, f"no local workspace mapped for product {product!r}"
     directive_id = routing_row["work_id"].split("-", 1)[1].rsplit("-routing", 1)[0]
     directive = conn.execute("SELECT * FROM telegram_directives WHERE id=?",
                              (directive_id,)).fetchone()
@@ -783,13 +813,13 @@ def enqueue_directed_work(conn, state, routing_row):
         "work_id": f"directive-{directive_id}-work",
         "routing_source": "registry/product-routing.yaml",
         "source_product": "agent-os-workforce",
-        "owning_product": "agent-os-workforce",
+        "owning_product": product,
         "owning_agent": agent,
-        "workspace": str(ROOT),
+        "workspace": workspace,
         "problem_or_opportunity": problem,
         "priority": {"level": priority, "confidence": 1.0},
         "desired_outcome": {"outcome": "The directed work, scoped by the directive above."},
-        "required_capabilities": ["filesystem"],
+        "required_capabilities": capabilities,
         "constraints": {
             "bounded": "Execute only the directed work. No publish, deploy, purchase, "
                        "credential change, or browser action unless the task later "
@@ -1064,10 +1094,16 @@ def route_directives(conn, state, now=None):
                 "lane": "ecosystem for operating-layer work, directive for product work.",
                 "proposal_format": "Write the checkpoint JSON with a 'proposal' object: "
                                    "{\"owning_agent\": \"<agent id from registry/agents.yaml>\", "
-                                   "\"priority\": \"p0|p1|p2|p3\", \"lane\": \"ecosystem|directive\"}. "
+                                   "\"priority\": \"p0|p1|p2|p3\", \"lane\": \"ecosystem|directive\", "
+                                   "\"product\": \"<product id from registry/product-routing.yaml, or agent-os-workforce>\", "
+                                   "\"capabilities\": [\"filesystem\", \"git\"]}. "
                                    "When TK accepts the proposal, this object is what enqueues the "
                                    "directed work — an absent or invalid proposal means nothing is "
                                    "enqueued automatically.",
+                "product": "Name the owning product from registry/product-routing.yaml by the repository "
+                           "named in the directive; use agent-os-workforce only for operating-layer work.",
+                "capabilities": "Declare the minimum capabilities the directed work needs (filesystem, "
+                                "and git when branch/PR work is required). Shell/git routes only to Codex.",
             },
             "acceptance_criteria": [
                 "Names one owning agent that exists in registry/agents.yaml",
