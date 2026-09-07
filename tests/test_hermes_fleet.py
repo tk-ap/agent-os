@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -9,6 +10,7 @@ import sys
 from unittest.mock import patch
 
 from adapters.hermes.fleet import bridge, harnesses
+from adapters.hermes.fleet import fallback_tick
 
 try:
     from hermes_cli import kanban_db as kb
@@ -228,6 +230,33 @@ class FleetTests(unittest.TestCase):
         conn = bridge.connect(self.state)
         self.assertEqual(kb.get_task(conn, task_id).status, before)
         conn.close()
+
+
+class FallbackClockTests(unittest.TestCase):
+    """The fallback tick only fires when the Hermes gateway is down, so the
+    systemd timer never double-ticks while the primary cron clock is healthy."""
+
+    def _home_with_heartbeat(self, age):
+        home = Path(tempfile.mkdtemp())
+        db = sqlite3.connect(home / "state.db")
+        db.execute("CREATE TABLE gateway_heartbeats (backend_id TEXT PRIMARY KEY, pid INTEGER,"
+                   " started_at REAL, last_heartbeat REAL, profile TEXT, host TEXT)")
+        db.execute("INSERT INTO gateway_heartbeats VALUES (?,?,?,?,?,?)",
+                   ("x", 1, time.time(), time.time() - age, "default", "h"))
+        db.commit(); db.close()
+        return home
+
+    def test_fresh_heartbeat_is_alive_and_stale_is_down(self):
+        fresh = self._home_with_heartbeat(10)
+        self.assertTrue(fallback_tick.gateway_alive(home=fresh))
+        stale = self._home_with_heartbeat(fallback_tick.GATEWAY_STALE_AFTER + 5)
+        self.assertFalse(fallback_tick.gateway_alive(home=stale))
+
+    def test_missing_or_empty_db_is_down(self):
+        self.assertFalse(fallback_tick.gateway_alive(home=Path(tempfile.mkdtemp())))
+        empty = self._home_with_heartbeat(10)
+        (empty / "state.db").unlink()
+        self.assertFalse(fallback_tick.gateway_alive(home=empty))
 
 
 if __name__ == "__main__":
