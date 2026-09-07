@@ -40,9 +40,11 @@ class API:
                           "editMessageText", "sendChatAction"}:
             raise ValueError("Unsupported Telegram operation")
         # Linked here rather than at each call site, so no message can ship a
-        # jargon word without the explainer behind it.
+        # jargon word without the explainer behind it. A call site that wants
+        # emphasis only (the "decision recorded" edit, which re-renders a card
+        # TK already read) opts out by passing a pre-rendered linkify() entry.
         if method in {"sendMessage", "editMessageText"} and payload.get("text") and "parse_mode" not in payload:
-            payload["text"] = linkify(payload["text"])
+            payload["text"] = linkify(payload["text"], glossary=not payload.pop("_plain_text", False))
             payload["parse_mode"] = "HTML"
         request = urllib.request.Request(
             f"https://api.telegram.org/bot{self.token}/{method}",
@@ -205,12 +207,15 @@ GLOSSARY = {
 }
 
 
-def linkify(text):
-    """Escape for Telegram HTML and link the first use of each jargon word.
+def linkify(text, glossary=True):
+    """Escape for Telegram HTML and, unless disabled, link the first use of each
+    jargon word.
 
     One pass over the escaped text, so a link is never inserted inside a link.
     Only the first occurrence of each term is linked — repeating it turns the
-    message into a wall of blue.
+    message into a wall of blue. The `glossary=False` path still renders
+    emphasis and code but leaves words plain, for the "decision recorded" edit
+    that re-renders a card TK has already read.
     """
     escaped = html.escape(text)
     # Emphasis is written as **bold** / __italic__ / `code` and converted only
@@ -219,6 +224,8 @@ def linkify(text):
     escaped = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped, flags=re.S)
     escaped = re.sub(r"__(.+?)__", r"<i>\1</i>", escaped, flags=re.S)
     escaped = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", escaped)
+    if not glossary:
+        return escaped
     used = set()
     pattern = re.compile(r"\b(" + "|".join(sorted(GLOSSARY, key=len, reverse=True)) + r")\b", re.IGNORECASE)
 
@@ -319,6 +326,7 @@ def request_inspection(conn, state, now=None):
 
 def read_inspection_verdicts(conn, state):
     """Record each finished inspector's verdict against the work it checked."""
+    from hermes_cli import kanban_db as kb
     pending = conn.execute(
         "SELECT * FROM agent_os_inspections WHERE verdict IS NULL AND inspector_task_id IS NOT NULL").fetchall()
     for row in pending:
@@ -354,6 +362,14 @@ def read_inspection_verdicts(conn, state):
             inspected = None
         conn.execute("UPDATE agent_os_inspections SET verdict=?, failed=?, snapshot=? WHERE task_id=?",
                      (verdict, short(summary, 600), inspected, row["task_id"]))
+        # The inspector's own order is consumed the moment its verdict is read.
+        # Leaving it in review would park a W Dog report as if it were pending
+        # TK's decision, cluttering /status with work that already did its job.
+        if order["phase"] == "review":
+            inspector = kb.get_task(conn, order["task_id"])
+            if inspector and inspector.status == "review":
+                kb.complete_task(conn, order["task_id"], result=verdict,
+                                 summary="Inspection verdict consumed by the loop.")
 
 
 MAX_REVISION_CYCLES = 2
@@ -1417,9 +1433,9 @@ def handle_update(conn, config, api, update):
             if card and card["decision"] in decided and card["decided_by"] == config["user_id"]:
                 try:
                     suffix = card["decision"] + (" — " + card["feedback"] if card["feedback"] else "")
-                    api.call("editMessageText",chat_id=config["chat_id"],message_id=card["message_id"],
+                    api.call("editMessageText", chat_id=config["chat_id"], message_id=card["message_id"],
                         text=card["message"][:3500]+"\n\nDecision recorded: "+suffix,
-                        reply_markup={"inline_keyboard":[]})
+                        reply_markup={"inline_keyboard":[]}, _plain_text=True)
                 except TelegramError:
                     pass
     elif "my_chat_member" in update:

@@ -225,6 +225,17 @@ class TelegramReviewTests(unittest.TestCase):
         self.assertIsNone(telegram.feedback_action("commit"))
         self.assertIsNone(telegram.feedback_action("deploy"))
 
+    def test_linkify_glossary_off_leaves_words_plain_but_keeps_emphasis(self):
+        """The decision-edit path renders markup without re-linking jargon."""
+        text = "**Your call.** The agent did something."
+        rendered = telegram.linkify(text, glossary=False)
+        self.assertIn("<b>Your call.</b>", rendered)
+        self.assertIn("agent", rendered)
+        self.assertNotIn("ai-from-zero", rendered)
+        # Default path still links the first jargon use.
+        linked = telegram.linkify(text)
+        self.assertIn("ai-from-zero", linked)
+
     def test_batch_publish_refuses_if_the_branch_moved(self):
         """The branch shown on the card must be the branch that gets pushed."""
         entry = {"label": "X", "path": str(self.workspace), "branch": "a-branch-that-is-not-checked-out",
