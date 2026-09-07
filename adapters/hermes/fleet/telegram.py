@@ -169,6 +169,30 @@ def fingerprint(row):
 
 AI_FROM_ZERO = "https://ashwood-info.vercel.app/ai-from-zero/"
 
+# One mark per agent, so who is speaking is legible before the text is read.
+# Cheaper than a bot per agent and it survives being forwarded.
+AGENT_EMOJI = {
+    "eugene": "\U0001F527",    # builder
+    "w-dog": "\U0001F415",     # watchdog
+    "rook": "\U0001F6E1",      # adversarial review
+    "ledger": "\U0001F4B0",    # economics
+    "marlo": "\u270D",         # writing
+    "scout": "\U0001F52D",     # external signal
+    "zoie": "\U0001F4A1",      # strategy
+    "bill": "\U0001F4CB",      # sequencing
+    "router": "\U0001F9ED",    # coordination
+    "steward": "\u2696",       # priority
+    "designer": "\U0001F3A8",  # experience
+    "milchik": "\U0001F3A9",   # floor manager
+}
+
+
+def badge(agent):
+    """Agent name with its mark, or a clear marker when nothing owns the work."""
+    if not agent:
+        return "\u2753 UNATTRIBUTED"
+    return "%s %s" % (AGENT_EMOJI.get(agent.lower(), "\u25AA"), agent.replace("-", " ").title())
+
 # Words that are jargon to a reader who does not build this system. Each one is
 # linked to the explainer the first time it appears in a message. A term with no
 # entry here does not belong in a card: link it or do not use it.
@@ -189,6 +213,12 @@ def linkify(text):
     message into a wall of blue.
     """
     escaped = html.escape(text)
+    # Emphasis is written as **bold** / __italic__ / `code` and converted only
+    # AFTER escaping, so markup an agent puts in its own summary is inert text
+    # while the card's own emphasis still renders.
+    escaped = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped, flags=re.S)
+    escaped = re.sub(r"__(.+?)__", r"<i>\1</i>", escaped, flags=re.S)
+    escaped = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", escaped)
     used = set()
     pattern = re.compile(r"\b(" + "|".join(sorted(GLOSSARY, key=len, reverse=True)) + r")\b", re.IGNORECASE)
 
@@ -388,6 +418,59 @@ def run_revisions(conn, state, now=None):
             WHERE task_id=?""", (row["cycles"] + 1, row["task_id"]))
 
 
+# Where each product is actually reachable. Nothing is inferred from a repo name.
+PRODUCTION_URL = {
+    "ashwood": "https://ashwood-info.vercel.app",
+    "alvira-meos": "https://alviratech.vercel.app",
+}
+REPO_SLUG = {
+    "ashwood": "tk-ap/ashwood-info",
+    "alvira-meos": "tk-ap/ALVIRA",
+    "agent-os-workforce": "tk-ap/agent-os",
+}
+
+
+def links_for(order):
+    """Live links for a card: PR, preview deployment, production.
+
+    Every one is looked up, never constructed. A link that would 404 is worse
+    than no link — it invites a tap that teaches you not to trust the next one.
+    Anything unavailable is simply omitted.
+    """
+    lines, product = [], order.get("owning_product", "")
+    workspace = Path(order.get("workspace", "."))
+    slug = REPO_SLUG.get(product)
+    branch = None
+    try:
+        branch = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=workspace, timeout=10)
+        branch = branch.strip() if branch else None
+    except Exception:
+        branch = None
+
+    if slug and branch and branch != "HEAD":
+        raw = _run(["gh", "pr", "view", branch, "--repo", slug, "--json", "url,number,isDraft,comments"],
+                   timeout=30)
+        if raw:
+            try:
+                pr = json.loads(raw)
+            except ValueError:
+                pr = None
+            if pr and pr.get("url"):
+                state_word = "draft" if pr.get("isDraft") else "ready"
+                lines.append(f"  PR #{pr['number']} ({state_word}) — {pr['url']}")
+                previews = set()
+                for comment in pr.get("comments") or []:
+                    previews.update(re.findall(r"https://[a-z0-9.-]*vercel\.app[^\s)\]]*",
+                                               comment.get("body", "")))
+                for preview in sorted(previews)[:1]:
+                    lines.append(f"  Preview of this branch — {preview}")
+
+    live = PRODUCTION_URL.get(product)
+    if live:
+        lines.append(f"  Live site (unchanged by this) — {live}")
+    return lines
+
+
 def collect_reviews(conn, state):
     from hermes_cli import kanban_db as kb
     for row in conn.execute("SELECT * FROM agent_os_orders WHERE phase IN ('review','blocked','revoked')").fetchall():
@@ -419,18 +502,17 @@ def collect_reviews(conn, state):
             pass
         # Written for TK, who is not reading this as an engineer. Plain words,
         # the decision first, and the limits stated rather than implied.
-        agent = (row["owning_agent"] or "An agent").title()
         tries = row["attempts"]
         summary = checkpoint.get("summary") or "The agent did not say what it did."
-        text = f"{agent} finished something. Your call.\n\n"
-        text += f"WHAT IT DID\n  {short(summary, 320)}\n\n"
-        text += f"WHERE\n  {order['owning_product']} · {short(order['work_id'],80)}\n\n"
+        text = f"{badge(row['owning_agent'])} finished something. **Your call.**\n\n"
+        text += f"**WHAT IT DID**\n  {short(summary, 320)}\n\n"
+        text += f"**WHERE**\n  {order['owning_product']} · `{short(order['work_id'],80)}`\n\n"
         if stamp:
-            text += "IS IT SAFE TO SAY YES?\n"
+            text += "**IS IT SAFE TO SAY YES?**\n"
             text += f"  It finished cleanly{' on the first try' if tries == 1 else f', after {tries} tries'}. "
             text += "The files are exactly as it left them.\n"
         else:
-            text += "SOMETHING IS OFF\n"
+            text += "**SOMETHING IS OFF**\n"
             text += "  I could not take a reliable snapshot of the files, so there is no\n"
             text += "  safe Accept here. Have a look on the machine before deciding.\n"
         verdict = inspection["verdict"]
@@ -439,33 +521,36 @@ def collect_reviews(conn, state):
         if verdict == "pass" and inspection["snapshot"] and stamp and inspection["snapshot"] != stamp:
             verdict = "stale"
         if verdict == "pass":
-            text += "\nSECOND OPINION\n"
+            text += "\n**SECOND OPINION**\n"
             text += "  W Dog checked this independently and found no problems.\n"
             text += f"  {short(inspection['failed'], 240)}\n"
         elif verdict == "fail":
-            text += "\nSECOND OPINION — PROBLEMS FOUND\n"
+            text += "\n**SECOND OPINION — PROBLEMS FOUND**\n"
             text += f"  {short(inspection['failed'], 400)}\n"
-            text += "  Saying yes here accepts work that failed its own checks.\n"
+            text += "  __Saying yes here accepts work that failed its own checks.__\n"
         elif verdict == "stale":
-            text += "\nSECOND OPINION NO LONGER APPLIES\n"
+            text += "\n**SECOND OPINION NO LONGER APPLIES**\n"
             text += "  W Dog passed this, then the files changed. Its approval was\n"
             text += "  about the earlier version, not the one in front of you now.\n"
         elif verdict == "unreadable":
-            text += "\nSECOND OPINION — UNCLEAR\n"
+            text += "\n**SECOND OPINION — UNCLEAR**\n"
             text += "  W Dog checked this but did not give a clean yes or no, so I\n"
             text += "  cannot tell you which it was. Here is what it said:\n"
             text += f"  {short(inspection['failed'], 400)}\n"
         else:
-            text += "\nNO SECOND OPINION\n"
+            text += "\n**NO SECOND OPINION**\n"
             text += "  The independent check could not run, so this has been seen only\n"
             text += "  by the agent that did it. That is not meant to happen.\n"
         text += "\nEither way, nothing is published, deployed, or visible to anyone\n"
         text += "outside this machine.\n"
-        text += "\nYOUR OPTIONS\n"
+        text += "\n**YOUR OPTIONS**\n"
         text += f"  {describe_publish(order)}\n"
         text += "  Needs changes — send it back and stop the current attempt.\n"
         text += "  Pause — stop for now. Nothing is deleted.\n"
-        text += f"\nFiles are on your machine at:\n  {record_path.parent}"
+        found = links_for(order)
+        if found:
+            text += "\n**LINKS**\n" + "\n".join(found) + "\n"
+        text += f"\nFiles are on your machine at:\n  `{record_path.parent}`"
         conn.execute("""INSERT OR IGNORE INTO telegram_cards
             (id,event_key,task_id,snapshot,expires,message) VALUES (?,?,?,?,?,?)""",
             (secrets.token_urlsafe(12), key, task.id, stamp, time.time()+86400, text))
@@ -571,7 +656,7 @@ def collect_fleet(conn):
                 work_id = json.loads(order["payload"]).get("work_id", "")
             except ValueError:
                 pass
-        lines = [f"Milchik — {short(work_id, 80) or task_id}"]
+        lines = [f"\U0001F3A9 Milchik — `{short(work_id, 80) or task_id}`"]
         for event, detail in group:
             lines.append(_fleet_line(event["kind"], detail))
         key = f"fleet:{task_id}:{group[-1][0]['id']}"
@@ -674,19 +759,20 @@ def collect_contributions(conn, state):
         problem = order.get("problem_or_opportunity")
         if isinstance(problem, dict):
             problem = problem.get("statement") or next(iter(problem.values()), "not stated")
-        lines = [f"{agent.title()} · {short(order.get('work_id',''),60)} · {order.get('owning_product','?')}"]
+        lines = [f"{badge(row['owning_agent'])} · `{short(order.get('work_id',''),60)}` · "
+                 f"{order.get('owning_product','?')}"]
         lines.append("")
-        lines.append("WHY THIS WAS DONE")
+        lines.append("**WHY THIS WAS DONE**")
         lines.append(f"  {short(problem, 280)}")
 
         did = checkpoint.get("contributions") or checkpoint.get("summary")
         lines.append("")
-        lines.append("WHAT IT SAYS IT DID")
+        lines.append("**WHAT IT SAYS IT DID**")
         lines.append(f"  {short(did, 280) if did else 'It did not say.'}")
 
         did_not = checkpoint.get("non_contributions")
         lines.append("")
-        lines.append("WHAT IT SAYS IT LEFT ALONE")
+        lines.append("**WHAT IT SAYS IT LEFT ALONE**")
         if did_not:
             lines.append(f"  {short(did_not, 280)}")
         else:
@@ -696,13 +782,13 @@ def collect_contributions(conn, state):
             lines.append("  state what it deliberately stopped short of.")
 
         lines.append("")
-        lines.append("WHAT ACTUALLY HAPPENED")
+        lines.append("**WHAT ACTUALLY HAPPENED**")
         lines.append(f"  Ran on {record.get('harness','an unknown tool')}, "
                      f"{'first try' if row['attempts'] == 1 else str(row['attempts']) + ' tries'}, "
                      f"ended as: {short(record.get('result','not recorded'), 80)}")
         lines.append("")
-        lines.append("  The two sections above are the agent describing itself.")
-        lines.append("  This line is the only part taken from the record.")
+        lines.append("  __The two sections above are the agent describing itself.__")
+        lines.append("  __This line is the only part taken from the record.__")
         if row["phase"] == "review":
             inspection = conn.execute("SELECT verdict FROM agent_os_inspections WHERE task_id=?",
                                       (row["task_id"],)).fetchone()
