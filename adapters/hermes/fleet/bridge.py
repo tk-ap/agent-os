@@ -60,6 +60,11 @@ def connect(state):
         CREATE TABLE IF NOT EXISTS agent_os_capacity (
             harness TEXT PRIMARY KEY, available_at REAL NOT NULL, reason TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS agent_os_grants (
+            task_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, scope TEXT NOT NULL,
+            approver INTEGER NOT NULL, granted_at REAL NOT NULL,
+            expires REAL NOT NULL, consumed INTEGER NOT NULL DEFAULT 0
+        );
         CREATE TABLE IF NOT EXISTS agent_os_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, task_id TEXT NOT NULL,
             kind TEXT NOT NULL, detail TEXT NOT NULL
@@ -196,7 +201,7 @@ def tick(state, dry_run=False):
                 "note": "Preview only; no reclaim, process launch, or capacity probe"}
         for row in conn.execute("SELECT * FROM agent_os_orders").fetchall():
             task = kb.get_task(conn, row["task_id"])
-            if not authorized(row) and task.status != "running" and row["phase"] not in {"review", "revoked"}:
+            if not authorized(row) and task.status != "running" and row["phase"] not in {"review", "revoked", "waiting_approval", "denied"}:
                 if not dry_run:
                     stop(conn, task.id, "revoked", "Authority expired, revoked, or payload changed")
             elif row["phase"] == "waiting_capacity" and row["next_at"] <= time.time() and authorized(row):
@@ -231,8 +236,13 @@ def snapshot(workspace):
     return p.stdout if p.returncode == 0 else "Not a Git workspace"
 
 
-def prompt_for(order, authority, checkpoint, previous):
-    return "\n".join([
+def short(value, limit=300):
+    text = str(value or "")
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def prompt_for(order, authority, checkpoint, previous, grant=None):
+    lines = [
         "Execute this bounded Agent OS work order. Read workspace AGENTS.md first.",
         "Only local file work is authorized. No send/publish/push/merge/deploy, purchases,",
         "credential changes, browser execution, or nested agent/CLI delegation.",
@@ -241,13 +251,23 @@ def prompt_for(order, authority, checkpoint, previous):
         "Inspect existing progress before continuing; reconcile completed steps, do not repeat them.",
         "After each meaningful step write JSON to " + str(checkpoint) + " with:",
         '{"summary":"...","completed":[],"remaining":[],"artifacts":[],"verification":[],',
-        ' "status":"in_progress|ready_for_review|blocked"}.',
+        ' "status":"in_progress|ready_for_review|blocked|waiting_approval"}.',
         "Use ready_for_review only after the acceptance criteria have been checked.",
         "A successful CLI exit is not independent verification. Report unsupported checks honestly.",
+        "If the next meaningful step needs authority beyond local file work (publish, deploy,",
+        "purchase, credential changes, browser execution, messaging), do NOT perform it:",
+        "write the checkpoint with \"status\": \"waiting_approval\" and",
+        '"approval_request": {"scope": "...exactly what you need...", "reason": "...why..."},',
+        "then exit. The operator will approve or deny; the same task resumes either way.",
         "Authority reference: " + authority,
         "Work order: " + json.dumps(order),
         "Previous checkpoint: " + json.dumps(previous),
-    ])
+    ]
+    if grant:
+        lines.insert(6, "TK-approved scoped authority (grant): " + grant["scope"])
+        lines.insert(7, "The grant expires at epoch " + str(int(grant["expires"])) +
+                     ". It authorizes ONLY the scope above; every other restriction still applies.")
+    return "\n".join(lines)
 
 
 def run_cli(argv, prompt, workspace, output, errors, timeout, alive):
@@ -341,6 +361,17 @@ def worker(state, task_id, run_id, runner=run_cli):
                     stop(conn, task_id, "blocked", "Total attempt budget exhausted", run_id)
                     emit(conn, task_id, "phase", {"phase": "blocked", "reason": "budget_exhausted"})
                     return
+                grant = conn.execute("SELECT * FROM agent_os_grants WHERE task_id=? AND consumed=0",
+                                     (task_id,)).fetchone()
+                if grant and grant["expires"] < time.time():
+                    # The operator approved, but the grant lapsed before this run
+                    # could use it. Park again rather than executing on stale
+                    # authority; the approval lineage stays in the event feed.
+                    conn.execute("DELETE FROM agent_os_grants WHERE task_id=?", (task_id,))
+                    conn.execute("UPDATE agent_os_orders SET phase='waiting_approval' WHERE task_id=?", (task_id,))
+                    stop(conn, task_id, "waiting_approval", "Scoped grant expired before use", run_id)
+                    emit(conn, task_id, "grant_expired", {"scope": grant["scope"]})
+                    return
                 candidates = []
                 for name in json.loads(row["harnesses"]):
                     capacity = conn.execute("SELECT available_at FROM agent_os_capacity WHERE harness=?", (name,)).fetchone()
@@ -369,7 +400,7 @@ def worker(state, task_id, run_id, runner=run_cli):
                 atomic_json(folder / f"{attempt}.json", record)
                 try:
                     rc = runner(harnesses.command(name, workspace),
-                        prompt_for(order, row["authority"], checkpoint, previous),
+                        prompt_for(order, row["authority"], checkpoint, previous, grant),
                         workspace, out, err, row["timeout"], alive)
                     kind, delay = harnesses.classify(rc, out.read_text(errors="replace"), err.read_text(errors="replace"))
                     record.update(returncode=rc, result=kind)
@@ -390,6 +421,27 @@ def worker(state, task_id, run_id, runner=run_cli):
                                  (name, time.time() + (delay or 3600), "usage_limit"))
                     continue
                 if kind == "executed":
+                    # A clean exit is not automatically "work finished". Two
+                    # clean-exit states mean something other than completion.
+                    gate = {}
+                    try:
+                        gate = json.loads(record.get("checkpoint_text") or "{}")
+                    except ValueError:
+                        pass
+                    request = gate.get("approval_request")
+                    if gate.get("status") == "waiting_approval" and isinstance(request, dict) and request.get("scope"):
+                        # Park durably at the protected boundary. Same task, same
+                        # checkpoint chain; only a scoped grant resumes it.
+                        conn.execute("UPDATE agent_os_orders SET phase='waiting_approval' WHERE task_id=?", (task_id,))
+                        stop(conn, task_id, "waiting_approval", "Harness requested scoped authority", run_id)
+                        emit(conn, task_id, "waiting_approval",
+                             {"scope": short(request.get("scope")),
+                              "reason": short(request.get("reason")),
+                              "attempt": attempt})
+                        return
+                    if grant:
+                        conn.execute("UPDATE agent_os_grants SET consumed=1 WHERE task_id=? AND consumed=0",
+                                     (task_id,))
                     # Handoff to an explicit non-profile review lane, never auto-complete.
                     conn.execute("UPDATE agent_os_orders SET phase='review' WHERE task_id=?", (task_id,))
                     emit(conn, task_id, "phase", {"phase": "review"})

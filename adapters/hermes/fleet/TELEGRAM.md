@@ -111,6 +111,27 @@ revision loop gave up — those stop until he acts. Commit digests, drift signal
 fleet lifecycle and contribution reports all go to the group, because the work
 continues whether or not he reads them.
 
+## Approval gates (scoped authority, same task resumes)
+
+A harness that needs authority beyond local file work does not act on it: it
+writes its checkpoint with `status: waiting_approval` and an
+`approval_request` (scope + reason) and exits. The order parks in a durable
+`waiting_approval` phase and Milchik sends a private-chat card with exactly two
+buttons:
+
+- **Approve scoped authority** — creates an `agent_os_grants` row (exact
+  requested scope, approver, 24-hour expiry) and resumes the SAME task. The
+  worker prompt carries the grant; everything else stays forbidden. The grant
+  is consumed exactly once, on the next clean completion.
+- **Deny & cancel** — terminates the task; the denial is recorded in the event
+  feed and the card.
+
+An approved grant that expires before the resumed run uses it re-parks the
+task (a `grant_expired` event) rather than executing on stale authority. The
+parked task survives restarts: phase, request, and grant all live in
+`kanban.db`. The offline e2e check exercises the full gate: park → card →
+approve → resume → review → accept.
+
 ## Canonical board provenance
 
 The Hermes Kanban board is the canonical executable backlog

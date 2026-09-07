@@ -124,7 +124,8 @@ def migrate(conn):
     install time. Each entry is idempotent and safe on a fresh database.
     """
     additions = {
-        "telegram_cards": {"channel": "TEXT NOT NULL DEFAULT 'private'", "feedback": "TEXT"},
+        "telegram_cards": {"channel": "TEXT NOT NULL DEFAULT 'private'", "feedback": "TEXT",
+                           "scope": "TEXT"},
         # Local attribution. The portable contract declares owning_agent; this is
         # where the runtime reads it without re-parsing the payload. NULL is
         # meaningful: unattributed work is a workforce coverage gap, not an error.
@@ -633,6 +634,49 @@ def collect_reviews(conn, state):
         conn.execute("""INSERT OR IGNORE INTO telegram_cards
             (id,event_key,task_id,snapshot,expires,message) VALUES (?,?,?,?,?,?)""",
             (secrets.token_urlsafe(12), key, task.id, stamp, time.time()+86400, text))
+
+
+def collect_approval_requests(conn, state):
+    """Surface parked approval gates as cards: approve or deny, same task resumes.
+
+    A worker hit a protected boundary and parked (phase waiting_approval). TK
+    approves a scoped, expiring grant — the SAME task resumes with that scope
+    added and nothing else — or denies, which terminates the task with the
+    denial in the record. Cards are private-chat only; the monitor group never
+    gets an approval button.
+    """
+    GRANT_TTL = 86400
+    for row in conn.execute("SELECT * FROM agent_os_orders WHERE phase='waiting_approval'").fetchall():
+        if conn.execute("SELECT 1 FROM telegram_cards WHERE task_id=? AND decision IS NULL",
+                        (row["task_id"],)).fetchone():
+            continue
+        record_path = Path(state) / row["task_id"] / f"{row['attempts']}.json"
+        request = {}
+        try:
+            checkpoint = json.loads(json.loads(record_path.read_text()).get("checkpoint_text", "{}"))
+            request = checkpoint.get("approval_request") or {}
+        except (OSError, ValueError):
+            pass
+        scope = short(request.get("scope") or "unspecified scope", 400)
+        stamp = None
+        try:
+            stamp = fingerprint(row)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+        key = f"approval:{row['task_id']}:{row['attempts']}:{stamp}"
+        text = f"{badge(row['owning_agent'])} stopped at a protected boundary. **Your call.**\n\n"
+        text += f"**WHAT IT NEEDS**\n  {scope}\n\n"
+        text += f"**WHY**\n  {short(request.get('reason') or 'No reason given.', 320)}\n\n"
+        text += "**IF YOU APPROVE**\n"
+        text += f"  A scoped grant, expires in {GRANT_TTL // 3600} hours. The same task resumes\n"
+        text += "  with ONLY that scope added. Everything else stays forbidden.\n\n"
+        text += "**IF YOU DENY**\n"
+        text += "  The task ends, and the denial is recorded with the work.\n\n"
+        text += "Nothing happens either way until you press one."
+        conn.execute("""INSERT OR IGNORE INTO telegram_cards
+            (id,event_key,task_id,snapshot,expires,message,scope) VALUES (?,?,?,?,?,?,?)""",
+            (secrets.token_urlsafe(12), key, row["task_id"], stamp, time.time()+GRANT_TTL,
+             text, request.get("scope") or ""))
 
 
 def record_change(conn, product, kind, revision, summary):
@@ -1355,7 +1399,7 @@ def decide(conn, config, query):
         return "Not authorized"
     parts = str(query.get("data", "")).split(":")
     feedback_actions = {name for name, _label, _reason in FEEDBACK_CHOICES}
-    valid = {"accept","commit","deploy","pause"} | feedback_actions
+    valid = {"accept","commit","deploy","pause","approve","deny"} | feedback_actions
     if len(parts) != 3 or parts[0] != "aos" or parts[2] not in valid:
         return "Unknown decision"
     card = conn.execute("SELECT * FROM telegram_cards WHERE id=?", (parts[1],)).fetchone()
@@ -1368,6 +1412,35 @@ def decide(conn, config, query):
     if not row or not task or row["revoked"]:
         return "Task revoked or missing"
     action = parts[2]
+    if action in {"approve", "deny"}:
+        # Scoped-authority decisions: the task is parked at a protected
+        # boundary, not in review. Approve grants ONLY the requested scope and
+        # resumes the SAME task; deny terminates it with the denial recorded.
+        from .bridge import emit
+        if row["phase"] != "waiting_approval":
+            return "Task is not awaiting approval"
+        if card["snapshot"]:
+            try:
+                if fingerprint(row) != card["snapshot"]:
+                    return "Files changed since this card; review the refreshed card"
+            except (OSError, ValueError, subprocess.SubprocessError):
+                return "Cannot verify current files; inspect locally"
+        scope = card["scope"] or "unspecified scope"
+        if action == "approve":
+            conn.execute("INSERT OR REPLACE INTO agent_os_grants VALUES (?,?,?,?,?,?,0)",
+                         (task.id, row["work_id"], scope, config["user_id"],
+                          time.time(), time.time() + 86400))
+            conn.execute("UPDATE agent_os_orders SET phase='queued' WHERE task_id=?", (task.id,))
+            kb.unblock_task(conn, task.id)
+            emit(conn, task.id, "grant_approved", {"scope": short(scope, 300), "ttl": 86400})
+            result = "Approved. The task resumes under the scoped grant; everything else stays blocked."
+        else:
+            conn.execute("UPDATE agent_os_orders SET revoked=1, phase='denied' WHERE task_id=?", (task.id,))
+            kb.block_task(conn, task.id, reason="Scoped authority denied by the operator")
+            emit(conn, task.id, "grant_denied", {"scope": short(scope, 300)})
+            result = "Denied. The task is cancelled; the denial is recorded with the work."
+        conn.execute("UPDATE telegram_cards SET decision=? WHERE id=?", (action, card["id"]))
+        return result
     approving = action in {"accept", "commit", "deploy"}
     if approving:
         if task.status != "review" or row["phase"] != "review" or not card["snapshot"]:
@@ -1441,21 +1514,31 @@ def deliver(conn, config, api):
         payload = {"chat_id": chat_id, "text": card["message"][:3900],
                    "link_preview_options": {"is_disabled": True}}
         if channel == "private" and card["task_id"]:
-            actions = []
-            if card["snapshot"]:
-                order_row_ = conn.execute("SELECT payload FROM agent_os_orders WHERE task_id=?",
-                                          (card["task_id"],)).fetchone()
-                try:
-                    approved = json.loads(order_row_["payload"]) if order_row_ else {}
-                except (ValueError, TypeError):
-                    approved = {}
-                actions = [(label, name) for name, label, _detail in publish_choices(approved)]
-            actions += [(label, name) for name, label, _reason in FEEDBACK_CHOICES]
-            actions += [("Pause", "pause")]
-            # One row per button: "Approve & publish" must never sit inches from
-            # "Approve & save" on a phone.
-            payload["reply_markup"] = {"inline_keyboard":[
-                [{"text":label,"callback_data":f"aos:{card['id']}:{action}"}] for label,action in actions]}
+            phase_row = conn.execute("SELECT phase FROM agent_os_orders WHERE task_id=?",
+                                     (card["task_id"],)).fetchone()
+            if phase_row and phase_row["phase"] == "waiting_approval":
+                # One row per button. Approval cards get exactly two: approve
+                # the scoped grant or cancel. No feedback buttons — this is not
+                # a quality judgement, it is an authority decision.
+                payload["reply_markup"] = {"inline_keyboard": [
+                    [{"text": "Approve scoped authority", "callback_data": f"aos:{card['id']}:approve"}],
+                    [{"text": "Deny & cancel", "callback_data": f"aos:{card['id']}:deny"}]]}
+            else:
+                actions = []
+                if card["snapshot"]:
+                    order_row_ = conn.execute("SELECT payload FROM agent_os_orders WHERE task_id=?",
+                                              (card["task_id"],)).fetchone()
+                    try:
+                        approved = json.loads(order_row_["payload"]) if order_row_ else {}
+                    except (ValueError, TypeError):
+                        approved = {}
+                    actions = [(label, name) for name, label, _detail in publish_choices(approved)]
+                actions += [(label, name) for name, label, _reason in FEEDBACK_CHOICES]
+                actions += [("Pause", "pause")]
+                # One row per button: "Approve & publish" must never sit inches from
+                # "Approve & save" on a phone.
+                payload["reply_markup"] = {"inline_keyboard":[
+                    [{"text":label,"callback_data":f"aos:{card['id']}:{action}"}] for label,action in actions]}
         # Ambiguous sends are never automatically retried (Telegram has no idempotency key).
         conn.execute("UPDATE telegram_cards SET delivery='uncertain' WHERE id=?", (card["id"],))
         result = api.call("sendMessage", **payload)
@@ -1498,7 +1581,7 @@ def handle_update(conn, config, api, update):
         parts = str(query.get("data", "")).split(":")
         if len(parts) == 3:
             card = conn.execute("SELECT * FROM telegram_cards WHERE id=?", (parts[1],)).fetchone()
-            decided = {"accept","commit","deploy","pause"} | {n for n,_l,_r in FEEDBACK_CHOICES}
+            decided = {"accept","commit","deploy","pause","approve","deny"} | {n for n,_l,_r in FEEDBACK_CHOICES}
             if card and card["decision"] in decided and card["decided_by"] == config["user_id"]:
                 try:
                     suffix = card["decision"] + (" — " + card["feedback"] if card["feedback"] else "")
@@ -1744,6 +1827,7 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
             read_inspection_verdicts(conn,state)
             run_revisions(conn,state)
             collect_reviews(conn,state)
+            collect_approval_requests(conn,state)
             if config["basis"] == "commit":
                 collect_commits(conn,config.get("repositories",{}))
             collect_batches(conn,config["every"],config["basis"])

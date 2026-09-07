@@ -13,7 +13,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from adapters.hermes.fleet import bridge, telegram
+from adapters.hermes.fleet import bridge, harnesses, telegram
 from adapters.hermes.fleet.e2e import FakeAPI, run_offline_e2e, STAGES
 from tests import test_hermes_fleet as fleet_tests
 
@@ -29,6 +29,107 @@ class MilchikTelegramE2ETests(unittest.TestCase):
         results = run_offline_e2e()
         for stage in STAGES:
             self.assertTrue(results.get(stage), f"stage failed: {stage} ({results.get(stage)!r})")
+
+
+@unittest.skipIf(kb is None, "Requires installed Hermes environment")
+class ApprovalGateTests(unittest.TestCase):
+    """Scoped-authority lifecycle: park, approve (same task resumes), deny,
+    grant expiry. HUMAN_GATE is a durable state, not a dead end."""
+
+    setUp = fleet_tests.FleetTests.setUp
+    tearDown = fleet_tests.FleetTests.tearDown
+    enqueue = fleet_tests.FleetTests.enqueue
+    claimed = fleet_tests.FleetTests.claimed
+
+    def _parked(self):
+        """A task parked at a protected boundary, with its request on record."""
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        folder = Path(self.state) / task_id
+        folder.mkdir(exist_ok=True)
+        Path(folder / "1.json").write_text(json.dumps({"checkpoint_text": json.dumps({
+            "summary": "Stopped at a protected boundary.",
+            "status": "waiting_approval",
+            "approval_request": {"scope": "commit and push the branch",
+                                 "reason": "publishing requires operator authority"}})}))
+        conn.execute("UPDATE agent_os_orders SET phase='waiting_approval',attempts=1 WHERE task_id=?",
+                     (task_id,))
+        kb.block_task(conn, task_id, reason="harness requested scoped authority")
+        conn.commit()
+        return conn, task_id
+
+    def _card(self, conn, task_id, action="approve"):
+        card_id = "card-" + task_id
+        conn.execute("""INSERT INTO telegram_cards
+            (id,event_key,task_id,snapshot,expires,message,scope,delivery,message_id)
+            VALUES (?,?,?,?,?,?,?,?,?)""",
+            (card_id, f"approval:{task_id}", task_id, None, time.time()+86400,
+             "approval card", "commit and push the branch", "sent", 7))
+        conn.commit()
+        config = {"user_id": 42, "chat_id": 42}
+        query = {"from": {"id": 42},
+                 "message": {"chat": {"id": 42}, "message_id": 7},
+                 "data": f"aos:{card_id}:{action}"}
+        return config, query
+
+    def test_deny_terminates_task_and_records_the_denial(self):
+        conn, task_id = self._parked()
+        try:
+            telegram.schema(conn)
+            config, query = self._card(conn, task_id, "deny")
+            result = telegram.decide(conn, config, query)
+            self.assertIn("Denied", result)
+            row = bridge.order_row(conn, task_id)
+            self.assertEqual(row["phase"], "denied")
+            self.assertEqual(row["revoked"], 1)
+            self.assertEqual(kb.get_task(conn, task_id).status, "blocked")
+            events = [e[0] for e in conn.execute(
+                "SELECT kind FROM agent_os_events WHERE task_id=?", (task_id,)).fetchall()]
+            self.assertIn("grant_denied", events)
+        finally:
+            conn.close()
+
+    def test_approve_grants_scoped_authority_and_resumes_same_task(self):
+        conn, task_id = self._parked()
+        try:
+            telegram.schema(conn)
+            config, query = self._card(conn, task_id, "approve")
+            result = telegram.decide(conn, config, query)
+            self.assertIn("Approved", result)
+            grant = conn.execute("SELECT * FROM agent_os_grants WHERE task_id=?", (task_id,)).fetchone()
+            self.assertIsNotNone(grant)
+            self.assertEqual(grant["scope"], "commit and push the branch")
+            self.assertEqual(grant["consumed"], 0)
+            self.assertEqual(grant["approver"], 42)
+            self.assertGreater(grant["expires"], time.time())
+            row = bridge.order_row(conn, task_id)
+            self.assertEqual(row["phase"], "queued")   # same task, not a replacement
+            self.assertIn(kb.get_task(conn, task_id).status, {"ready", "running"})
+        finally:
+            conn.close()
+
+    def test_expired_grant_reparks_without_touching_the_harness(self):
+        task = self.claimed()
+        conn = bridge.connect(self.state)
+        conn.execute("INSERT INTO agent_os_grants VALUES (?,?,?,?,?,?,0)",
+                     (task.id, "test-1", "scope", 42, time.time()-20, time.time()-10))
+        conn.commit()
+        conn.close()
+        def forbidden(*args):
+            self.fail("an expired grant must never reach the harness")
+        with patch.object(harnesses, "available", return_value=True):
+            bridge.worker(self.state, task.id, task.current_run_id, forbidden)
+        conn = bridge.connect(self.state)
+        try:
+            self.assertEqual(bridge.order_row(conn, task.id)["phase"], "waiting_approval")
+            self.assertEqual(kb.get_task(conn, task.id).status, "blocked")
+            self.assertIsNone(conn.execute(
+                "SELECT 1 FROM agent_os_grants WHERE task_id=?", (task.id,)).fetchone())
+            events = [e[0] for e in conn.execute(
+                "SELECT kind FROM agent_os_events WHERE task_id=?", (task.id,)).fetchall()]
+            self.assertIn("grant_expired", events)
+        finally:
+            conn.close()
 
 
 @unittest.skipIf(kb is None, "Requires installed Hermes environment")
