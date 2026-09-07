@@ -6,6 +6,22 @@ The primary execution object is the **task**. Agents, skills, harnesses, and hos
 
 A portable `work-item` may precede a task when work crosses a product or workspace boundary. A work item proposes or transfers intent; a task is the governed execution instance after product, policy, authority, and execution boundaries are resolved.
 
+## Canonical Load-Path Rule
+
+Operational guidance is not considered integrated merely because a document exists in the repository.
+
+When adding a policy, build spec, operating procedure, runtime constraint, reconciliation plan, or other guidance that an agent/harness is expected to act on:
+
+1. identify the canonical bootstrap, adapter, registry, policy, skill, workflow, routine, or product-local instruction path that governs the relevant task class;
+2. wire the new guidance into that load path with the narrowest applicable trigger/condition;
+3. avoid making every task load unrelated documentation;
+4. if no appropriate canonical load path exists, create or extend the smallest authoritative path rather than relying on an orphaned document;
+5. treat a standalone doc with no reachable load path as reference-only until it is explicitly wired in.
+
+**Default: attach actionable guidance to the applicable canonical load path rather than dropping documents into the repository and expecting agents or harnesses to discover them.**
+
+Repository cleanliness is not the goal by itself. The goal is deterministic instruction discovery: a relevant task should load the guidance it needs without a human having to remember that a separate document exists.
+
 ## Adapter Detection
 
 Before the generic load sequence, determine whether the current environment has a matching adapter under `adapters/`.
@@ -87,6 +103,7 @@ LEDGATo participates only when the work materially intersects its defined govern
 - Producer/inspector loops require acceptance criteria, bounded cycles, and escalation.
 - Close loops: execution is not complete until the intended result has been verified and material outcome evidence has a destination.
 - Distinguish proposed, simulated, attempted, implemented, previewed, verified, deployed, and user-validated states.
+- Actionable repository guidance must be reachable from the applicable canonical load path; orphaned docs are reference-only until wired in.
 
 ## External Skill Discovery
 
