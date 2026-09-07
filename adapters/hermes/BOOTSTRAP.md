@@ -48,9 +48,19 @@ authorization, or governance.
 7. Read `skills/skill-resolver/SKILL.md`.
 8. Read `registry/harnesses.yaml` only when the task requires harness
    selection or sub-harness delegation.
-9. Select the minimum sufficient agent roles and approved skills.
-10. Work only in the product repository unless explicitly authorized otherwise.
-11. Verify the result in the product environment and return material outcome
+9. **Autonomous-workforce reconciliation/build tasks:** when the task concerns
+   persistence, recurring/background execution, Milchik, Telegram control,
+   Hermes Kanban, backlog dispatch, workforce health, or autonomous business
+   operations, automatically read all of the following before planning or
+   implementation:
+   - `docs/proposals/MILCHIK_HERMES_KANBAN_CONTROL.md`
+   - `docs/proposals/AUTONOMOUS_WORKFORCE_GAP_PLAN.md`
+   - `docs/proposals/WORKFORCE_HEALTH_AND_DEGRADATION.md`
+   Reconcile each requirement against current `main`, open PRs, and live-host
+   behavior. Prefer existing runtime/contracts over duplicate infrastructure.
+10. Select the minimum sufficient agent roles and approved skills.
+11. Work only in the product repository unless explicitly authorized otherwise.
+12. Verify the result in the product environment and return material outcome
     evidence before declaring completion.
 
 ## Product Boundary Check
