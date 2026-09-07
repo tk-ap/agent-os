@@ -190,6 +190,21 @@ class TelegramReviewTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_publishing_is_a_separate_press_from_saving(self):
+        """A card that can publish still offers the smaller choice, and honours it."""
+        deploy = {"workspace": "/tmp", "work_id": "w",
+                  "publish_action": {"kind": "deploy", "paths": ["a"], "branch": "main",
+                                     "deploys_to": "https://example.invalid"}}
+        names = [n for n, _label, _d in telegram.publish_choices(deploy)]
+        self.assertEqual(names, ["commit", "deploy"])
+        # Pressing save on a deploy-capable card must not publish.
+        self.assertIsNone(telegram.perform_publish({"publish_action": {"kind": "deploy"}},
+                                                   None, chosen="accept"))
+        commit_only = {"workspace": "/tmp", "work_id": "w",
+                       "publish_action": {"kind": "commit", "paths": ["a"]}}
+        self.assertEqual([n for n, _l, _d in telegram.publish_choices(commit_only)], ["commit"])
+        self.assertEqual([n for n, _l, _d in telegram.publish_choices({"workspace": "/tmp"})], ["accept"])
+
     def test_review_deduplication(self):
         conn,task,config,query = self.card()
         try:

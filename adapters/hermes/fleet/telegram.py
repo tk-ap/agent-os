@@ -544,7 +544,7 @@ def collect_reviews(conn, state):
         text += "\nEither way, nothing is published, deployed, or visible to anyone\n"
         text += "outside this machine.\n"
         text += "\n**YOUR OPTIONS**\n"
-        text += f"  {describe_publish(order)}\n"
+        text += "\n".join(describe_publish(order)) + "\n"
         text += "  Needs changes — send it back and stop the current attempt.\n"
         text += "  Pause — stop for now. Nothing is deleted.\n"
         found = links_for(order)
@@ -1102,26 +1102,49 @@ def status_report(conn, config):
     return "\n".join(lines)
 
 
-def describe_publish(order):
-    """One plain sentence naming what accepting will actually do."""
-    action = order.get("publish_action") or {}
-    if action.get("kind") != "commit":
-        return "Accept — you are happy. Closes the job and publishes nothing."
-    count = len(action.get("paths", []))
-    return (f"Accept — saves {count} file{'s' if count != 1 else ''} into "
-            f"{Path(order['workspace']).name} permanently. Still nothing online.")
+def publish_choices(order):
+    """The decisions this card offers, widest consequence last.
 
-
-def perform_publish(order, row):
-    """Carry out the publish the work item declared, and nothing else.
-
-    Only the declared paths are committed. The card's fingerprint has already
-    proven the files are exactly as they were reviewed, so what is committed is
-    what was approved. It never pushes: leaving the machine is a separate grant
-    that nobody has given.
+    TK picks the consequence at decision time rather than the work item picking
+    it for him. A card that can deploy also offers the smaller commit, so
+    approving the work and publishing it stay separate choices.
     """
     action = order.get("publish_action") or {}
-    if action.get("kind") != "commit":
+    kind = action.get("kind")
+    count = len(action.get("paths", []))
+    plural = "s" if count != 1 else ""
+    where = Path(order.get("workspace", ".")).name
+    choices = []
+    if kind in {"commit", "deploy"}:
+        choices.append(("commit", "Approve & save",
+                        f"saves {count} file{plural} into {where}. Still nothing online."))
+    if kind == "deploy":
+        choices.append(("deploy", "Approve & publish",
+                        f"saves {count} file{plural} AND puts them **live for anyone** at "
+                        f"{action.get('deploys_to', 'the site')}. __This one leaves your machine.__"))
+    if not choices:
+        choices.append(("accept", "Approve", "closes the job and publishes nothing."))
+    return choices
+
+
+def describe_publish(order):
+    """The option lines for the card, one per available decision."""
+    return [f"  {label} — {detail}" for _action, label, detail in publish_choices(order)]
+
+
+def perform_publish(order, row, chosen="accept"):
+    """Carry out the decision TK actually pressed, and nothing wider.
+
+    `chosen` is the button, not the work item's ceiling. A card may offer deploy
+    and be answered with save; the smaller choice is always honoured, and the
+    work item can only narrow what is on offer, never widen what was pressed.
+
+    Only the declared paths are committed. The card's fingerprint has already
+    proven the files are exactly as they were reviewed, so what is published is
+    what was approved.
+    """
+    action = order.get("publish_action") or {}
+    if action.get("kind") not in {"commit", "deploy"} or chosen == "accept":
         return None
     workspace = Path(order["workspace"]).resolve()
     paths = action.get("paths") or []
@@ -1136,7 +1159,22 @@ def perform_publish(order, row):
     git(workspace, "-c", "user.name=Milchik", "-c", "user.email=milchik@agent-os.invalid",
         "commit", "-m", message, "--", *paths)
     revision = git(workspace, "rev-parse", "--short", "HEAD").decode().strip()
-    return f"Saved as {revision} in {workspace.name}. Not pushed anywhere."
+    if chosen != "deploy":
+        return f"Saved as {revision} in {workspace.name}. Not published anywhere."
+    branch, remote = action.get("branch"), action.get("remote", "origin")
+    if not branch:
+        raise ValueError("publishing was declared without a branch")
+    current = git(workspace, "rev-parse", "--abbrev-ref", "HEAD").decode().strip()
+    if current != branch:
+        # Refuse rather than guess. Publishing a branch other than the reviewed
+        # one would put something live that nobody looked at.
+        raise ValueError(f"declared branch {branch} but the workspace is on {current}")
+    # Never forced. A rejected push means someone else moved the branch, which is
+    # a conversation to have, not a state to overwrite.
+    git(workspace, "push", remote, f"{branch}:{branch}")
+    target = action.get("deploys_to")
+    return (f"Saved as {revision} and published to {remote}/{branch}."
+            + (f" {target} goes live in a minute or two." if target else ""))
 
 
 def decide(conn, config, query):
@@ -1147,7 +1185,7 @@ def decide(conn, config, query):
         message.get("chat",{}).get("id") != config["chat_id"]):
         return "Not authorized"
     parts = str(query.get("data", "")).split(":")
-    if len(parts) != 3 or parts[0] != "aos" or parts[2] not in {"accept","changes","pause"}:
+    if len(parts) != 3 or parts[0] != "aos" or parts[2] not in {"accept","commit","deploy","changes","pause"}:
         return "Unknown decision"
     card = conn.execute("SELECT * FROM telegram_cards WHERE id=?", (parts[1],)).fetchone()
     if not card or card["message_id"] != message.get("message_id") or card["decision"]:
@@ -1159,7 +1197,8 @@ def decide(conn, config, query):
     if not row or not task or row["revoked"]:
         return "Task revoked or missing"
     action = parts[2]
-    if action == "accept":
+    approving = action in {"accept", "commit", "deploy"}
+    if approving:
         if task.status != "review" or row["phase"] != "review" or not card["snapshot"]:
             return "Task is not eligible for acceptance"
         try:
@@ -1172,7 +1211,7 @@ def decide(conn, config, query):
                            (config["user_id"],time.time(),card["id"])).rowcount
     if not changed:
         return "Decision already handled"
-    if action == "accept":
+    if approving:
         claim = kb.claim_review_task(conn,task.id,ttl_seconds=60)
         if claim is None:
             return "Task changed; inspect locally"
@@ -1196,7 +1235,7 @@ def decide(conn, config, query):
         except ValueError:
             order = {}
         try:
-            published = perform_publish(order, order_row(conn, task.id))
+            published = perform_publish(order, order_row(conn, task.id), chosen=action)
             if published:
                 result = "Accepted. " + published
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
@@ -1224,10 +1263,20 @@ def deliver(conn, config, api):
         payload = {"chat_id": chat_id, "text": card["message"][:3900],
                    "link_preview_options": {"is_disabled": True}}
         if channel == "private" and card["task_id"]:
-            actions = ([("Accept result","accept")] if card["snapshot"] else [])
+            actions = []
+            if card["snapshot"]:
+                order_row_ = conn.execute("SELECT payload FROM agent_os_orders WHERE task_id=?",
+                                          (card["task_id"],)).fetchone()
+                try:
+                    approved = json.loads(order_row_["payload"]) if order_row_ else {}
+                except (ValueError, TypeError):
+                    approved = {}
+                actions = [(label, name) for name, label, _detail in publish_choices(approved)]
             actions += [("Needs changes","changes"),("Pause","pause")]
-            payload["reply_markup"] = {"inline_keyboard":[[
-                {"text":label,"callback_data":f"aos:{card['id']}:{action}"} for label,action in actions]]}
+            # One row per button: "Approve & publish" must never sit inches from
+            # "Approve & save" on a phone.
+            payload["reply_markup"] = {"inline_keyboard":[
+                [{"text":label,"callback_data":f"aos:{card['id']}:{action}"}] for label,action in actions]}
         # Ambiguous sends are never automatically retried (Telegram has no idempotency key).
         conn.execute("UPDATE telegram_cards SET delivery='uncertain' WHERE id=?", (card["id"],))
         result = api.call("sendMessage", **payload)
@@ -1246,7 +1295,7 @@ def handle_update(conn, config, api, update):
         parts = str(query.get("data", "")).split(":")
         if len(parts) == 3:
             card = conn.execute("SELECT * FROM telegram_cards WHERE id=?", (parts[1],)).fetchone()
-            if card and card["decision"] in {"accept","changes","pause"} and card["decided_by"] == config["user_id"]:
+            if card and card["decision"] in {"accept","commit","deploy","changes","pause"} and card["decided_by"] == config["user_id"]:
                 try:
                     api.call("editMessageText",chat_id=config["chat_id"],message_id=card["message_id"],
                         text=card["message"][:3500]+"\n\nDecision recorded: "+card["decision"],
