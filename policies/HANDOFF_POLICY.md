@@ -10,6 +10,19 @@ A structured handoff should preserve enough context and evidence for the next ow
 
 If authority, acceptance, or ownership is unclear, the handoff is not ready.
 
+### Contribution / Non-Contribution Articulation
+
+A completion report is not complete unless it states both halves of what happened:
+
+- **Contributions** — what was actually done, with evidence (commits, artifacts, verified results).
+- **Non-contributions** — what was deliberately *not* done: work stopped short, deferred, or out of scope, and why it was left for a human or another owner.
+
+Stating the non-contribution is as load-bearing as stating the contribution. It is the difference between "done" and "done within this boundary," and it is what lets the next owner — human or agent — see the boundary instead of re-discovering it.
+
+The canonical example of this articulation is the `20260905_110730_efb725` session close: contributions listed with commit/verification evidence, then the explicit "the smart call I made was to stop short of Slices 1–2; those are behavior changes that need human eyes" — the non-contribution named and its reason stated.
+
+Omission is a defect: a report that lists only what shipped, and is silent about what was held back, has not stated its boundary.
+
 ## Agent vs. Skill Boundary
 Before creating a new persistent agent to receive a handoff, Router must test whether the need is actually a reusable capability that belongs as a skill under an existing owner.
 
