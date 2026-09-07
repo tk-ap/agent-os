@@ -8,6 +8,7 @@ canonical_sources:
   harness_routing: registry/harnesses.yaml
   skills: registry/skills.yaml
   handoffs: policies/HANDOFF_POLICY.md
+  operator_communication: adapters/hermes/fleet/OPERATOR_COMMUNICATION.md
 
 repositories:
   product:
@@ -47,6 +48,16 @@ execution:
   return_outcome_evidence_when_material: true
   default_delivery: product-repository-change
   pr_review_delivery: github-comment
+
+operator_communication:
+  contract: adapters/hermes/fleet/OPERATOR_COMMUNICATION.md
+  human_language_first: true
+  progressive_disclosure: true
+  preferred_default_explanation_level: learning
+  technical_detail_available_on_request: true
+  explanation_controls_are_read_only: true
+  channel_must_not_widen_authority: true
+  telegram_role: optional-human-interaction-adapter
 
 portable_contracts:
   work_item: contracts/work-item.schema.json
