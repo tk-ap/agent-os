@@ -9,6 +9,7 @@ from . import telegram_human
 from . import telegram_human_readonly as _telegram_human_readonly
 from . import telegram_human_monitor as _telegram_human_monitor
 from . import telegram_agent_directory as _telegram_agent_directory
+from . import telegram_agent_directory_hotfix as _telegram_agent_directory_hotfix
 
 # Explain is presentation only: install a renderer that performs reads without
 # persisting routing proposals or changing any task/approval state. The
@@ -33,6 +34,12 @@ _telegram_human_monitor.install(telegram)
 # owner remains subject to normal routing validation, review, and permission
 # boundaries; this is human direction, not authority widening.
 _telegram_agent_directory.install(telegram)
+
+# The long-running listener dispatches through the underlying base Telegram
+# module. Mirror the wrapped directory handler onto that real dispatch target so
+# reply-keyboard text such as `Agent directory` and `Status` is intercepted
+# before the legacy directive-only handler sees it.
+_telegram_agent_directory_hotfix.install(telegram)
 
 # Any existing `from adapters.hermes.fleet import telegram` or
 # `from adapters.hermes.fleet.telegram import ...` call now receives the
