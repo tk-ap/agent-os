@@ -2,11 +2,11 @@
 
 > Status: proposal/build spec for Agent OS onboarding and Hermes reconciliation.
 >
-> Purpose: define the minimum operating rails required for a persistent autonomous workforce to remain responsive to TK, economically bounded, reversible, and aligned with current business priorities.
+> Purpose: define the minimum operating rails required for a persistent autonomous workforce to remain responsive to TK, economically bounded, reversible, privacy-aware, reproducible, and aligned with current business priorities.
 
 ## Core principle
 
-Agent OS should remain continuously available without continuously consuming model capacity. It should wake the minimum sufficient agent instances only when eligible work exists, and every autonomous action should remain bounded by explicit objective, authority, workspace, cost, interruption, and evidence rules.
+Agent OS should remain continuously available without continuously consuming model capacity. It should wake the minimum sufficient agent instances only when eligible work exists, and every autonomous action should remain bounded by explicit objective, authority, workspace, cost, interruption, context-release, execution-identity, lifecycle, and evidence rules.
 
 ## 1. Interruptibility and safe checkpoints
 
@@ -187,15 +187,29 @@ All long-lived objective leases and autonomous priority policies must reference 
 
 A stale objective lease tied to superseded human intent is not valid authority to continue selecting new work.
 
-## 10. Relationship to execution contexts
+## 10. Context release, agent-instance pinning, and decommissioning
+
+For any task that crosses harnesses, uses personal/private context, creates multiple concurrent instances of a durable role, or cleans up stale operating state, automatically read and apply:
+
+`docs/proposals/CONTEXT_RELEASE_INSTANCE_PINNING_AND_DECOMMISSIONING.md`
+
+That specification adds three required controls:
+
+- **context release policy** — shared awareness does not imply shared raw context; release only the minimum permitted context for the task, preserving provenance and sensitivity/freshness constraints;
+- **agent-instance/version pinning** — material execution evidence records the effective role, identity version, skill set, harness/model/provider, policy version, product-context version, repository ref, host, and toolchain as practical;
+- **decommissioning/garbage collection** — stale, superseded, expired, abandoned, or duplicate operating objects leave active context through an explicit lifecycle rather than accumulating indefinitely.
+
+These controls are part of onboarding and autonomous-operation safety, not optional cleanup work.
+
+## 11. Relationship to execution contexts
 
 These guardrails compose with `docs/proposals/EXECUTION_CONTEXT_AND_WORKSPACE_ISOLATION.md`.
 
 A human exploration session may read current objectives, priorities, active work, and relevant evidence without automatically entering canonical execution state. Promotion into governed work remains explicit.
 
-Durable agent identities may have multiple concurrent task/session instances, but each instance has its own execution context, mutable surfaces, authority, task state, and evidence lineage.
+Durable agent identities may have multiple concurrent task/session instances, but each instance has its own execution context, mutable surfaces, authority, task state, evidence lineage, and effective execution identity.
 
-## 11. Relationship to workforce health
+## 12. Relationship to workforce health
 
 These controls feed `docs/proposals/WORKFORCE_HEALTH_AND_DEGRADATION.md`.
 
@@ -208,9 +222,12 @@ Health should flag, at minimum:
 - missing rollback on actions that require it;
 - repeated fallback activation;
 - work proceeding under superseded human intent;
-- excessive candidate/backlog promotion without verified business progress.
+- excessive candidate/backlog promotion without verified business progress;
+- context release failures or over-broad release;
+- missing/uncomparable agent-instance metadata for performance claims;
+- accumulation of stale active objects or cleanup candidates.
 
-## 12. Canonical implementation guidance
+## 13. Canonical implementation guidance
 
 Hermes must reconcile each section against current `main`, open PRs, and live runtime before adding new structures.
 
@@ -222,7 +239,7 @@ For each requirement classify:
 - `MISSING`
 - `DUPLICATE_OF_EXISTING`
 
-Prefer extending existing task, authorization, evidence, routine, backlog/Kanban, and health contracts over creating parallel schemas.
+Prefer extending existing task, authorization, context-envelope, evidence, routine, backlog/Kanban, instance metadata, and health contracts over creating parallel schemas.
 
 ## Minimum acceptance tests
 
@@ -236,6 +253,10 @@ Prefer extending existing task, authorization, evidence, routine, backlog/Kanban
 8. Material mutation with required rollback either records a valid recovery path or escalates before execution.
 9. Harness failure follows a declared fallback chain without widening authority.
 10. Superseded human intent invalidates future work selection under the old objective lease.
+11. A harness receives only the minimum permitted context required for its task.
+12. Two concurrent instances of the same durable role retain distinct execution identity and authority/workspace lineage.
+13. Superseded/archived/decommissioned objects do not load as current operating truth.
+14. Hygiene audit flags stale operating objects without destructive mutation by default.
 
 ## Non-goals
 
@@ -245,4 +266,13 @@ Do not add:
 - a second backlog or objective system;
 - continuous LLM self-reflection loops;
 - autonomous policy expansion without shadow evidence;
-- implicit conversion of private human conversations into executable work.
+- implicit conversion of private human conversations into executable work;
+- broad context sharing solely because a harness is connected;
+- another task identity system solely for instance pinning;
+- destructive cleanup without retention/authority checks.
+
+## Architecture stop condition
+
+After these guardrails are reconciled into canonical runtime/contracts/policies, do not add more conceptual control-plane layers without a demonstrated failure mode from real Agent OS operation.
+
+The next priority is measured execution against product and revenue objectives, not further architecture expansion.
