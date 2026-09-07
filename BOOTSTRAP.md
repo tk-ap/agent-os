@@ -22,6 +22,16 @@ When adding a policy, build spec, operating procedure, runtime constraint, recon
 
 Repository cleanliness is not the goal by itself. The goal is deterministic instruction discovery: a relevant task should load the guidance it needs without a human having to remember that a separate document exists.
 
+## Execution Context / Workspace Isolation
+
+For any human-started harness session, concurrent agent work, multi-workspace product work, or task that may mutate a repository while other work is active, read `docs/proposals/EXECUTION_CONTEXT_AND_WORKSPACE_ISOLATION.md` until its durable requirements are migrated into first-class contracts/runtime/policies.
+
+Core rule: **agent identity may be concurrent; mutable execution authority and workspace ownership may not be implicit or shared.**
+
+Human-started sessions default to `human_exploration` unless the human explicitly requests governed execution. Human exploration should read relevant product/Agent OS truth and active-work awareness, but it must not silently join or overwrite an AgentOS-controlled active workspace, mutate canonical task state, or create backlog work merely because an idea was discussed.
+
+Mutating work requires an explicit execution context and isolated workspace/worktree. Overlapping mutable surfaces must be detected before dispatch/integration; conflicting contexts must reconcile rather than overwrite one another.
+
 ## Adapter Detection
 
 Before the generic load sequence, determine whether the current environment has a matching adapter under `adapters/`.
@@ -38,15 +48,16 @@ For any workspace using Agent OS:
 
 1. **Normalize the request.** Capture the requested outcome, known product/workspace, task class, constraints, source work-item when present, and explicit human gates.
 2. **Resolve product and environment truth.** Read `registry/product-routing.yaml`, local product/workspace instructions, and `.agent-os/` metadata when present. Local metadata may add implementation detail but must not redefine canonical product roles.
-3. **Load governance before execution.** Read `policies/AUTONOMY_POLICY.md`, `policies/HANDOFF_POLICY.md`, and `policies/CROSS_MARKET_POLICY.md` when cross-product recommendation is relevant. Preserve protected surfaces and approval boundaries.
-4. **Resolve organizational ownership.** Read `registry/agents.yaml` and select the minimum agent set responsible for the task. Apply the agent-vs-skill test before proposing a new persistent agent.
-5. **Resolve capabilities.** Read `skills/skill-resolver/SKILL.md` and select the minimum sufficient approved skill set from `registry/skills.yaml`.
-6. **Load only necessary identity and context.** Read selected agents' `IDENTITY.md` files and only the product/workspace context needed for the task.
-7. **Resolve recurring-work requirements when applicable.** If the work repeats, compose with `skills/owned/recurring-work/SKILL.md`; a schedule never grants authority.
-8. **Resolve execution environment.** Use the matching adapter and available harness/host capabilities. Models, harnesses, and hosts are execution dependencies; none may silently expand authority.
-9. **Execute within the task envelope.** Do not widen scope because a tool, credential, harness, or host makes broader action possible.
-10. **Verify the intended result.** Execution is incomplete until the relevant build, test, preview, browser, data, or other checks have run.
-11. **Return evidence and unresolved gates.** Record what changed, where it ran, verification results, uncertainty, cost when material, and anything still requiring human approval.
+3. **Resolve execution context when concurrency or mutation is possible.** Classify the session/task as `human_exploration`, `consultation`, `governed_execution`, or `verification`; identify repository/workspace/branch, mutable surfaces, active overlaps, and authority. Human exploration is context-aware but non-canonical by default.
+4. **Load governance before execution.** Read `policies/AUTONOMY_POLICY.md`, `policies/HANDOFF_POLICY.md`, and `policies/CROSS_MARKET_POLICY.md` when cross-product recommendation is relevant. Preserve protected surfaces and approval boundaries.
+5. **Resolve organizational ownership.** Read `registry/agents.yaml` and select the minimum agent set responsible for the task. Apply the agent-vs-skill test before proposing a new persistent agent.
+6. **Resolve capabilities.** Read `skills/skill-resolver/SKILL.md` and select the minimum sufficient approved skill set from `registry/skills.yaml`.
+7. **Load only necessary identity and context.** Read selected agents' `IDENTITY.md` files and only the product/workspace context needed for the task.
+8. **Resolve recurring-work requirements when applicable.** If the work repeats, compose with `skills/owned/recurring-work/SKILL.md`; a schedule never grants authority.
+9. **Resolve execution environment.** Use the matching adapter and available harness/host capabilities. Models, harnesses, and hosts are execution dependencies; none may silently expand authority.
+10. **Execute within the task envelope and workspace context.** Do not widen scope because a tool, credential, harness, or host makes broader action possible. Do not mutate another active context's workspace.
+11. **Verify the intended result.** Execution is incomplete until the relevant build, test, preview, browser, data, or other checks have run.
+12. **Return evidence and unresolved gates.** Record what changed, where it ran, verification results, uncertainty, cost when material, workspace/context provenance, and anything still requiring human approval.
 
 The target resolution chain is:
 
@@ -87,6 +98,9 @@ LEDGATo participates only when the work materially intersects its defined govern
 
 - The task is primary for execution. Portable work items carry intent across boundaries without granting execution authority.
 - Identities are durable. Skills are composable and task-specific.
+- A durable agent role may have multiple concurrent task/session instances; authority and mutable task state remain instance-scoped.
+- Human exploration and consultation do not automatically create backlog work or mutate active governed tasks.
+- Mutating concurrent work must use isolated workspaces/worktrees or equivalent isolation; overlapping mutable surfaces require reconciliation before canonical integration.
 - `registry/product-routing.yaml` is the canonical source for product roles and shared-capability boundaries.
 - Skills expand capability; they do not redefine agent or product ownership.
 - Prefer existing owner + reusable skill over an unnecessary persistent agent.
@@ -121,4 +135,4 @@ A new workspace should need only:
 
 Project-specific facts, secrets, and temporary context should stay outside this repository.
 
-The long-term portability test is stronger: the same governed task should be routable across compatible harnesses and hosts without changing product truth, organizational ownership, authorization boundaries, or evidence requirements.
+The long-term portability test is stronger: the same governed task should be routable across compatible harnesses and hosts without changing product truth, organizational ownership, authorization boundaries, workspace isolation, or evidence requirements.
