@@ -396,18 +396,13 @@ base.collect_reviews = collect_reviews
 base.deliver = deliver
 base.decide = decide
 base.handle_update = handle_update
+# Self-reference so later presentation installs (human_monitor, agent
+# directory) can resolve `telegram.base` when they receive the base module
+# itself as `telegram`.
+base.base = base
 
-# Public surface: preserve every existing command/API, with patched globals.
-for _name in dir(base):
-    if _name.startswith("__"):
-        continue
-    globals().setdefault(_name, getattr(base, _name))
-
-# Explicitly bind the patched entrypoints after the export loop.
-collect_reviews = collect_reviews
-deliver = deliver
-decide = decide
-handle_update = handle_update
-tick = base.tick
-listen = base.listen
-main = base.main
+# The base module is patched in place above (collect_reviews/deliver/decide/
+# handle_update). The human module itself is never exposed as `telegram`: the
+# package __init__ aliases base, so attribute reads AND writes (test isolation
+# patches of ROOT/CONFIG included) all land on the one module dict that the
+# runtime functions actually read. No value copying, no proxy layer.

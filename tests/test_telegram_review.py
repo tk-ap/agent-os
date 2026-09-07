@@ -73,7 +73,11 @@ class TelegramReviewTests(unittest.TestCase):
     def test_acceptance_closes_exact_local_task_and_prevents_replay(self):
         conn,task,config,query = self.card()
         try:
-            self.assertIn("accepted",telegram.decide(conn,config,query).lower())
+            # Human-first confirmation: the operator-facing wording is plain
+            # language, while the underlying phase remains machine-readable.
+            result = telegram.decide(conn,config,query).lower()
+            self.assertIn("approved",result)
+            self.assertIn("closed",result)
             self.assertEqual(kb.get_task(conn,task.id).status,"done")
             self.assertIn("already handled",telegram.decide(conn,config,query))
             self.assertEqual(bridge.order_row(conn,task.id)["phase"],"accepted")
@@ -238,7 +242,7 @@ class TelegramReviewTests(unittest.TestCase):
             conn.execute("DELETE FROM telegram_cards")
             telegram.collect_reviews(conn,self.state)
             card = conn.execute("SELECT message FROM telegram_cards WHERE channel='private'").fetchone()
-            self.assertIn("NO LONGER APPLIES", card["message"])
+            self.assertIn("files changed after the independent review", card["message"])
             self.assertNotIn("found no problems", card["message"])
         finally:
             conn.close()
