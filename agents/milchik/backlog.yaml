@@ -82,7 +82,7 @@
   title: Finish Milchik two-chat Telegram runtime (monitor channel + private approvals)
   problem: |
     Fleet event feed, two-chat delivery, and drift/memory signal collection are
-    half-built; the monitor group chat_id is not yet wired into config.
+    half-built; monitor group chat_id is not yet wired into config.
   desired_outcome: one bot in two chats, fleet lifecycle lines to the group,
     approvals + drift + memory to TK's private chat
   notes: |
@@ -108,3 +108,48 @@
     Caps are contract terms checked by reading evidence records; nothing measures
     spend at a turn boundary. Blocks real recurring operation. Ledger owns economics.
   desired_outcome: a measured, breaker-enforced cap path before any routine runs ACTIVE
+
+- work_id: ailhat-live-scan-customer-readiness-proof
+  source: ailhat
+  lane: directive
+  status: approved
+  source_ref:
+    system: ailhat
+    id: portfolio-seed-ailhat-top-next-action
+    ref: tk-ap/ailhat:data/portfolio-context.seed.json
+  priority: {level: p1, confidence: 0.65}
+  title: Restore ailhat production reliability/auth and validate the complete live scan loop
+  problem: |
+    ailhat's current portfolio seed marks the product ACTIVE but PRIVATE_BETA_PRE_LAUNCH,
+    readiness 65/MEDIUM, NEEDS_ATTENTION, with the top next action to restore
+    production reliability/auth and validate the complete live scan loop. Before acting,
+    AgentOS must re-read current ailhat/product/runtime evidence and confirm this finding
+    is still valid rather than treating the seed as current truth.
+  desired_outcome: |
+    ailhat's core live scan path is verified end to end against current production state,
+    any blocking reliability/auth defects are remediated, independent review finds and
+    fixes material issues, remediation receives a distinct final review, and the result
+    reaches TK through Milchik as a concise final-push/customer-test-readiness decision.
+  notes: |
+    This is the first real proof item for the execution-review-release lifecycle.
+    TK explicitly approved this proof sequence on 2026-09-07.
+
+    Required lifecycle:
+      1. Revalidate the ailhat finding against current ecosystem/product conditions.
+      2. Define acceptance criteria before mutation and identify protected regression boundaries.
+      3. Assign one accountable owner and the minimum sufficient support/reviewer roles.
+      4. Execute only if the finding is still current and worth doing now.
+      5. Executor performs self-verification and returns evidence before peer review.
+      6. A distinct second AgentOS role performs meaningful independent review.
+      7. If the reviewer finds a material issue, the reviewer may remediate it within task authority.
+      8. Any reviewer-authored remediation invalidates that reviewer's ability to provide final verification.
+         Route the remediated result to a distinct third AgentOS role or human for final re-review.
+      9. Confirm release/customer-test readiness separately from technical correctness.
+     10. Milchik sends TK a plain-language brief: what changed, evidence, issues found/fixed,
+         residual risk, live state, and the exact final action requiring approval.
+     11. No protected final push/deploy/external action without applicable scoped approval.
+     12. After any approved final action, verify the actual live/user-facing state before DONE.
+
+    Proof fails if the system skips revalidation, lets the executor self-approve, lets a
+    remediating reviewer final-approve their own changes, or reports commit/merge/deploy
+    as equivalent to live verification.
