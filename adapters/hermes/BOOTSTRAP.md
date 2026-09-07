@@ -23,7 +23,7 @@ authorization, or governance.
 ## Workspace Contract
 
 - **Product repository:** primary working tree; read/write according to task
-  authorization.
+  authorization and execution-context/workspace-isolation rules.
 - **Agent OS repository:** shared operating layer; read-only unless the task
   explicitly concerns Agent OS itself.
 - **Product-local instructions:** authoritative for product-specific
@@ -32,6 +32,9 @@ authorization, or governance.
 - **Agent OS:** authoritative for product routing, role routing, handoffs,
   autonomy policy, portable contracts, harness selection, skill resolution, and
   reusable capability procedures.
+- **Concurrent work:** never assume access to a repository means the current
+  checkout is safe to mutate. Resolve execution context and active-workspace
+  overlap first.
 
 ## Load Order
 
@@ -58,9 +61,18 @@ authorization, or governance.
    - `docs/proposals/WORKFORCE_HEALTH_AND_DEGRADATION.md`
    Reconcile each requirement against current `main`, open PRs, and live-host
    behavior. Prefer existing runtime/contracts over duplicate infrastructure.
-10. Select the minimum sufficient agent roles and approved skills.
-11. Work only in the product repository unless explicitly authorized otherwise.
-12. Verify the result in the product environment and return material outcome
+10. **Concurrent/human-exploration tasks:** when the task is human-started,
+    advisory/consultative, opens another harness against a product repo, may run
+    alongside Agent OS work, or may mutate a repo with active work, automatically
+    read `docs/proposals/EXECUTION_CONTEXT_AND_WORKSPACE_ISOLATION.md` before
+    planning or mutation. Default ungoverned human sessions to
+    `human_exploration`, not governed execution.
+11. Select the minimum sufficient agent roles and approved skills.
+12. Work only in the product repository unless explicitly authorized otherwise.
+13. Before mutation, confirm an isolated workspace/worktree and detect active
+    overlapping mutable surfaces. Never silently overwrite another execution
+    context.
+14. Verify the result in the product environment and return material outcome
     evidence before declaring completion.
 
 ## Product Boundary Check
@@ -76,6 +88,42 @@ Before material implementation:
 - route authorization-intelligence decisions to Agent Control when required;
 - involve LEDGATo only when governance or enforcement is materially in scope;
 - do not turn Agent OS / Workforce into a standalone public offering.
+
+## Concurrent Role / Session Model
+
+A durable Agent OS role may be instantiated in multiple simultaneous task or
+consultation contexts. The role identity may be shared; mutable task state,
+authority, workspace ownership, and execution evidence are instance-scoped.
+
+Example:
+
+```text
+Eugene
+  AO-193      governed_execution   ALVIRA entitlement fix
+  CONSULT-27  consultation         architecture discussion with TK
+```
+
+A consultation does not pause, modify, or inherit authority from the governed
+execution task. Material new information discovered in consultation should be
+submitted as a structured intervention/handoff to the active task rather than
+mutating it implicitly.
+
+## Human Exploration
+
+When TK opens Hermes or a sub-harness to explore an idea independently of an
+Agent OS task:
+
+- default the context to `human_exploration`;
+- load relevant product truth, Agent OS boundaries, protected surfaces, and
+  active-work awareness;
+- use an isolated branch/worktree for mutation;
+- do not create backlog work merely because an idea was discussed;
+- do not silently join an AgentOS-controlled worktree or active task;
+- when TK explicitly asks to capture/build/promote the idea, reconcile it
+  against canonical state and promote it through the appropriate work-item/task
+  path with provenance.
+
+Target behavior: **not overwriting, not ignorant, not interfering.**
 
 ## Single-Runner Multi-Agent Mode
 
@@ -147,17 +195,18 @@ handoff/work item; direct mutation requires explicit task authorization.
 - Load only capabilities needed for the current task.
 - Product-specific instructions override generic skill preferences when they
   conflict, unless doing so would violate higher-order safety,
-  product-boundary, authorization, or security policy.
+  product-boundary, authorization, security policy, or active workspace
+  isolation.
 
 ## Execution Pattern
 
 For implementation work:
 
-`REQUEST → PRODUCT BOUNDARY → ROUTE → SPECIALIST ANALYSIS → TASK ENVELOPE → CONTEXT/AUTHORIZATION IF NEEDED → EXECUTE (DIRECT OR VIA SUB-HARNESS) → TEST/VERIFY → OUTCOME EVIDENCE → PR/DELIVERY`
+`REQUEST → PRODUCT BOUNDARY → EXECUTION CONTEXT → ROUTE → SPECIALIST ANALYSIS → TASK ENVELOPE → CONTEXT/AUTHORIZATION IF NEEDED → ISOLATED WORKSPACE → EXECUTE (DIRECT OR VIA SUB-HARNESS) → TEST/VERIFY → OUTCOME EVIDENCE → PR/DELIVERY`
 
 For analysis-only work:
 
-`REQUEST → PRODUCT BOUNDARY → ROUTE → MINIMUM SPECIALISTS → SYNTHESIS → RECOMMENDATION`
+`REQUEST → PRODUCT BOUNDARY → EXECUTION CONTEXT → ROUTE → MINIMUM SPECIALISTS → SYNTHESIS → RECOMMENDATION`
 
 ## Reference Task Class: PR Review
 
@@ -184,6 +233,8 @@ reported success. Completion requires:
 
 - requested outcome addressed;
 - canonical product boundaries and local constraints honored;
+- execution context/workspace isolation honored;
+- no unresolved conflicting mutable workspace hidden from integration;
 - tests/checks run where available;
 - material security/permission/irreversibility concerns reviewed;
 - no known unresolved blocker hidden from the user;
