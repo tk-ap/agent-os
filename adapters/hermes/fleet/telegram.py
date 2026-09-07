@@ -1283,19 +1283,24 @@ def listen(state=DEFAULT_STATE, config_path=CONFIG, api=None, once=False):
         while True:
             conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('listener_heartbeat',?)",
                          (str(time.time()),))
+            # The lock is held around state, never around the long poll. flock is
+            # blocking, so waiting inside it would stall the minute tick for the
+            # whole 25 seconds, every minute.
             with lock(Path(state) / "telegram.lock"):
                 row = conn.execute("SELECT value FROM telegram_meta WHERE key='offset'").fetchone()
-                try:
-                    updates = api.call("getUpdates", offset=int(row[0]) if row else 0,
-                                       timeout=25, limit=25,
-                                       allowed_updates=["callback_query", "message", "my_chat_member"])
-                except TelegramError:
-                    updates = []          # Transport hiccup; the next poll retries.
-                for update in updates:
-                    config = json.loads(Path(config_path).read_text())   # setup may have changed it
-                    handle_update(conn, config, api, update)
-                    conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('offset',?)",
-                                 (str(update["update_id"] + 1),))
+                offset = int(row[0]) if row else 0
+            try:
+                updates = api.call("getUpdates", offset=offset, timeout=25, limit=25,
+                                   allowed_updates=["callback_query", "message", "my_chat_member"])
+            except TelegramError:
+                updates = []              # Transport hiccup; the next poll retries.
+            if updates:
+                with lock(Path(state) / "telegram.lock"):
+                    for update in updates:
+                        config = json.loads(Path(config_path).read_text())  # setup may have changed it
+                        handle_update(conn, config, api, update)
+                        conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('offset',?)",
+                                     (str(update["update_id"] + 1),))
             if once:
                 return {"status": "ok", "handled": len(updates)}
     finally:
