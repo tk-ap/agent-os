@@ -94,6 +94,17 @@ judgement and runs in a worker with a model, never in the scheduler tick.
 An unprefixed message gets a one-line reply saying it was not recorded. Silently
 ignoring it would look identical to a directive that was captured and never ran.
 
+## Starting the next piece of backlog work
+
+Send `/next` in the private chat. Milchik takes the highest-ranked backlog item
+he is allowed to start, turns it into a directive, and routes it — replying with
+what he picked and why.
+
+He will only start an item that is `source: human` or already `approved`
+(IDENTITY.md §09). A high rank on an unapproved agent proposal is attention, not
+permission, so `/next` skips it and says the top items are waiting on you rather
+than starting one.
+
 ## Asking for status
 
 Send `/status` in the private chat or the monitor group. Milchik replies with a

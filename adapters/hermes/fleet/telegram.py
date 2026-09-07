@@ -875,6 +875,30 @@ def backlog_top(k=3):
         return None
 
 
+def eligible_backlog_item():
+    """Highest-ranked backlog item Milchik is actually allowed to start.
+
+    IDENTITY.md §09: he may enqueue only work that is `source: human`
+    (pre-authorized by TK's own intent) or already `approved`. A high rank on an
+    unapproved agent proposal is attention, not permission, so those are skipped
+    rather than started.
+    """
+    try:
+        import yaml
+        from runtime import backlog as backlog_runtime
+        items = yaml.safe_load((ROOT / "agents/milchik/backlog.yaml").read_text()) or []
+    except Exception:
+        return None, "I could not read the backlog."
+    open_items = [i for i in items if i.get("status") != "done"]
+    if not open_items:
+        return None, "The backlog is empty."
+    for item in backlog_runtime.rank(open_items):
+        if backlog_runtime.authority_present(item) or item.get("status") == "approved":
+            return item, None
+    return None, ("Nothing in the backlog is cleared to start. The top items are "
+                  "proposals waiting on your approval.")
+
+
 def status_report(conn, config):
     """Milchik's founder view: what is in flight, where, and what needs TK.
 
@@ -1226,6 +1250,25 @@ def handle_update(conn, config, api, update):
                     "Not recorded. Prefix a directive with > or /do — "
                     "plain messages here are not instructions."),
                     link_preview_options={"is_disabled":True})
+            except TelegramError:
+                pass
+        if body == "/next" and sender == config["user_id"] and chat == config["chat_id"]:
+            item, refusal = eligible_backlog_item()
+            if refusal:
+                reply = refusal
+            else:
+                problem = item.get("problem") or item.get("title", "")
+                conn.execute("INSERT INTO telegram_directives(ts,text) VALUES (?,?)",
+                             (time.time(), short("%s\n\n%s" % (item.get("title", ""), problem), 2000)))
+                number = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                reply = ("Starting #%d: %s\n\nPicked because it is %s and %s. "
+                         "Routing it now — I will come back when someone needs to decide something."
+                         % (number, short(item.get("title", ""), 140),
+                            item.get("priority", {}).get("level", "p3"),
+                            "yours" if item.get("source") == "human" else "already approved"))
+            try:
+                api.call("sendMessage", chat_id=chat, text=reply,
+                         link_preview_options={"is_disabled": True})
             except TelegramError:
                 pass
         if body == "/status" and sender == config["user_id"] and chat in {
