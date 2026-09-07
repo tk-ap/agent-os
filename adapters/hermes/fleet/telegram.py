@@ -2368,6 +2368,35 @@ def pair_monitor():
     raise TimeoutError("Nothing captured. Confirm the fleet tick is running: hermes cron list")
 
 
+def board_snapshot(conn):
+    """Rows for the ASHWOOD workspace board feed: what, who, product, state.
+
+    The private workspace consumes this as its third evidence source
+    (ailhat, GitHub, governed work)."""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+    order_by = "updated_at" if "updated_at" in cols else "created_at"
+    rows = []
+    for t in conn.execute(f"SELECT * FROM tasks ORDER BY {order_by} DESC LIMIT 300").fetchall():
+        d = dict(t)
+        product = "agent-os-workforce"
+        try:
+            order = json.loads(d.get("body") or "{}")
+            if isinstance(order, dict):
+                product = order.get("owning_product") or order.get("product") or product
+        except (ValueError, TypeError):
+            pass
+        rows.append({
+            "board_key": d["id"],
+            "title": d.get("title") or d["id"],
+            "status": d.get("status") or "ready",
+            "assignee": d.get("assignee") or "unassigned",
+            "product": product,
+            "workspace": d.get("workspace_path") or "",
+            "updated_at": d.get("updated_at") or d.get("created_at"),
+        })
+    return rows
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="action",required=True)
@@ -2380,6 +2409,7 @@ def main():
     sub.add_parser("e2e")
     sub.add_parser("hygiene")
     lease = sub.add_parser("lease")
+    sub.add_parser("board-export")
     lease.add_argument("--create", action="store_true")
     lease.add_argument("--list", action="store_true")
     lease.add_argument("--revoke")
@@ -2443,6 +2473,8 @@ def main():
             lease_manage(conn, args)
         elif args.action == "workspace":
             workspace_manage(conn, args)
+        elif args.action == "board-export":
+            print(json.dumps(board_snapshot(conn), indent=2))
         elif args.action == "record-change":
             record_change(conn,args.product,args.kind,args.revision,args.summary)
         elif args.action == "record-signal":
