@@ -398,7 +398,7 @@ def worker(state, task_id, run_id, runner=run_cli):
         conn.close()
 
 
-def propose(state, order, authority, contributions, non_contributions):
+def propose(state, order, authority, contributions):
     """Put work that is already done into the review lane.
 
     Changes made directly on the workstation — by TK, or by an assistant working
@@ -427,7 +427,6 @@ def propose(state, order, authority, contributions, non_contributions):
                 "checkpoint_text": json.dumps({
                     "summary": contributions,
                     "contributions": contributions,
-                    "non_contributions": non_contributions,
                     "verification": "None claimed. This work was made in place, not by a worker.",
                 }),
             })
@@ -459,7 +458,6 @@ def main():
     prop.add_argument("--product", default="agent-os-workforce")
     prop.add_argument("--what", required=True, help="What was done")
     prop.add_argument("--why", required=True, help="Why it was done")
-    prop.add_argument("--not-done", default="", help="What was deliberately left alone")
     prop.add_argument("--accept", action="append", required=True, help="Acceptance criterion (repeatable)")
     prop.add_argument("--commit", action="append", default=[], help="File to commit on approval (repeatable)")
     prop.add_argument("--message", default="", help="Commit message")
@@ -493,8 +491,7 @@ def main():
             order["publish_action"] = {"kind": "commit", "paths": args.commit,
                                        "message": args.message or args.work_id}
         print(propose(args.state, order, authority=f"made-in-place:{args.agent}",
-                      contributions=args.what,
-                      non_contributions=args.not_done or "Not stated."))
+                      contributions=args.what))
         return
     if args.action == "enqueue":
         print(enqueue(args.state, json.loads(args.work_item.read_text()), args.authority,

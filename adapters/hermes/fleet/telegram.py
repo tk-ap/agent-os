@@ -835,17 +835,6 @@ def collect_contributions(conn, state):
         lines.append("**WHAT IT SAYS IT DID**")
         lines.append(f"  {short(did, 280) if did else 'It did not say.'}")
 
-        did_not = checkpoint.get("non_contributions")
-        lines.append("")
-        lines.append("**WHAT IT SAYS IT LEFT ALONE**")
-        if did_not:
-            lines.append(f"  {short(did_not, 280)}")
-        else:
-            # HANDOFF_POLICY.md: a report silent about what was held back has not
-            # stated its boundary, and omission is a defect rather than a blank.
-            lines.append("  It did not say. That is a gap — every agent is meant to")
-            lines.append("  state what it deliberately stopped short of.")
-
         lines.append("")
         lines.append("**WHAT ACTUALLY HAPPENED**")
         lines.append(f"  Ran on {record.get('harness','an unknown tool')}, "

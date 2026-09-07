@@ -108,14 +108,3 @@
     Caps are contract terms checked by reading evidence records; nothing measures
     spend at a turn boundary. Blocks real recurring operation. Ledger owns economics.
   desired_outcome: a measured, breaker-enforced cap path before any routine runs ACTIVE
-
-- work_id: contribution-articulation-policy
-  source: human
-  lane: ecosystem
-  status: approved
-  priority: {level: p1, confidence: 1.0}
-  title: Codify contribution/non-contribution articulation into HANDOFF_POLICY.md
-  problem: |
-    Session 20260905_110730_efb725 established the pattern: an agent states what
-    it did AND what it deliberately did not do. Not yet written into policy.
-  desired_outcome: HANDOFF_POLICY.md gains the articulation requirement + canonical example
