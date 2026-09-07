@@ -98,3 +98,13 @@ agents:
     discover_domains: [agent-identity-design]
     max_active_skills: 3
     restrictions: [does-not-own-domain-decisions, does-not-override-specialist-judgment-without-evidence, does-not-become-default-executor, does-not-create-persistent-agents-without-human-approval]
+
+  milchik:
+    name: Milchik
+    role: Floor Manager & Human↔Fleet Liaison
+    identity: agents/milchik/IDENTITY.md
+    owns: [work-backlog, attention-ranking, fleet-monitor-channel, approval-channel, skills-gap-detection, skill-utilization-discovery, line-keeping, translator-register]
+    core_skills: [opportunity-triage, audit-evidence-ledger, context-provenance]
+    discover_domains: [workforce-awareness, agent-operations, supervision, coordination]
+    max_active_skills: 4
+    restrictions: [does-not-author-content, does-not-ship-code, does-not-grant-or-assume-authority, does-not-believe-agent-self-report-over-record, does-not-publish-deploy-or-run-browser, does-not-own-product-truth-strategy-priority-economics-feasibility-or-verification]
