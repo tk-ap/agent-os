@@ -172,6 +172,24 @@ class TelegramReviewTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_tick_yields_polling_to_a_live_listener(self):
+        """Two pollers would steal each other's updates; only one may hold getUpdates."""
+        conn = bridge.connect(self.state)
+        try:
+            telegram.schema(conn)
+            self.assertFalse(telegram.listener_is_live(conn))
+            conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('listener_heartbeat',?)",
+                         (str(time.time()),))
+            self.assertTrue(telegram.listener_is_live(conn))
+            # A listener that stopped checking in must hand polling back.
+            conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('listener_heartbeat',?)",
+                         (str(time.time() - telegram.LISTENER_STALE_AFTER - 1),))
+            self.assertFalse(telegram.listener_is_live(conn))
+            conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('listener_heartbeat','nonsense')")
+            self.assertFalse(telegram.listener_is_live(conn))
+        finally:
+            conn.close()
+
     def test_review_deduplication(self):
         conn,task,config,query = self.card()
         try:

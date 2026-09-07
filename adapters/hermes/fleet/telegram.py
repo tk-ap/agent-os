@@ -36,7 +36,8 @@ class API:
         self.token = token
 
     def call(self, method, **payload):
-        if method not in {"getMe", "getWebhookInfo", "getUpdates", "sendMessage", "answerCallbackQuery", "editMessageText"}:
+        if method not in {"getMe", "getWebhookInfo", "getUpdates", "sendMessage", "answerCallbackQuery",
+                          "editMessageText", "sendChatAction"}:
             raise ValueError("Unsupported Telegram operation")
         # Linked here rather than at each call site, so no message can ship a
         # jargon word without the explainer behind it.
@@ -1123,6 +1124,184 @@ def deliver(conn, config, api):
         conn.execute("UPDATE telegram_cards SET delivery='sent',message_id=? WHERE id=?", (result["message_id"],card["id"]))
 
 
+def handle_update(conn, config, api, update):
+    """Act on one Telegram update. Shared by the minute tick and the listener."""
+    if "callback_query" in update:
+        query = update["callback_query"]
+        response = decide(conn,config,query)
+        try:
+            api.call("answerCallbackQuery",callback_query_id=query["id"],text=response[:190],show_alert=True)
+        except TelegramError:
+            pass  # Decision is persisted even when Telegram's short callback TTL expires.
+        parts = str(query.get("data", "")).split(":")
+        if len(parts) == 3:
+            card = conn.execute("SELECT * FROM telegram_cards WHERE id=?", (parts[1],)).fetchone()
+            if card and card["decision"] in {"accept","changes","pause"} and card["decided_by"] == config["user_id"]:
+                try:
+                    api.call("editMessageText",chat_id=config["chat_id"],message_id=card["message_id"],
+                        text=card["message"][:3500]+"\n\nDecision recorded: "+card["decision"],
+                        reply_markup={"inline_keyboard":[]})
+                except TelegramError:
+                    pass
+    elif "my_chat_member" in update:
+        # Fires when the bot is added to a group, and is delivered even
+        # under privacy mode — unlike an ordinary group message. Adding
+        # the bot is therefore enough to designate the monitor channel.
+        membership = update["my_chat_member"]
+        joined = (membership.get("new_chat_member") or {}).get("status") in {"member","administrator"}
+        chat = membership.get("chat", {})
+        if (joined and membership.get("from",{}).get("id") == config["user_id"]
+                and not config.get("monitor_chat_id")
+                and chat.get("type") in {"group","supergroup","channel"}
+                and chat.get("id") != config["chat_id"]):
+            config["monitor_chat_id"] = chat["id"]
+            save_config(config)
+            try:
+                api.call("sendMessage",chat_id=config["chat_id"],
+                    text=f"Monitor channel paired: {short(chat.get('title','untitled'),80)} "
+                         f"({chat['id']}). Read-only fleet lines go there; approvals stay here.")
+            except TelegramError:
+                pass
+    elif "message" in update:
+        # The ONLY text this bot acts on. Every other message is ignored:
+        # free-form Telegram text is not an agent prompt and grants no authority.
+        message = update["message"]
+        body = str(message.get("text","")).strip().split("@")[0].lower()
+        # First word only, so "/do fix the sitemap" matches the command
+        # while the rest stays as the directive text.
+        head = body.split(None, 1)[0] if body.split() else ""
+        sender = message.get("from",{}).get("id")
+        chat = message.get("chat",{}).get("id")
+        if sender == config["user_id"] and not config.get("monitor_chat_id"):
+            # Capture here rather than in a second poller. Confirming a
+            # getUpdates offset makes Telegram forget earlier updates, so
+            # any separate pairing process races this tick and loses.
+            designated, title = monitor_chat_of(message, config["chat_id"])
+            if designated:
+                config["monitor_chat_id"] = designated
+                save_config(config)
+                try:
+                    api.call("sendMessage",chat_id=config["chat_id"],
+                        text=f"Monitor channel paired: {short(title,80)} ({designated}). "
+                             "This group receives read-only fleet lines. "
+                             "Approvals stay in this private chat.")
+                except TelegramError:
+                    pass
+        text = str(message.get("text","")).strip()
+        directive = None
+        if text.startswith(">"):
+            directive = text[1:].strip()
+        elif head == "/do":
+            parts = text.split(None, 1)
+            directive = parts[1].strip() if len(parts) > 1 else ""
+        if (directive is not None and sender == config["user_id"]
+                and chat == config["chat_id"] and directive):
+            # Recorded as a directive, NOT executed. Free-form text is
+            # still not an agent prompt: this writes a row and answers
+            # with what it wrote. Turning it into work needs routing,
+            # which needs a model, which this tick does not have.
+            conn.execute("INSERT INTO telegram_directives(ts,text) VALUES (?,?)",
+                         (time.time(), short(directive, 2000)))
+            number = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            try:
+                api.call("sendMessage",chat_id=chat,
+                    text=f"Got it — #{number}. I will come back when I need you.",
+                    link_preview_options={"is_disabled":True})
+            except TelegramError:
+                pass
+        elif (sender == config["user_id"] and chat == config["chat_id"]
+                and directive == ""):
+            try:
+                api.call("sendMessage",chat_id=chat,
+                    text="Empty directive. Put the instruction after > or /do.",
+                    link_preview_options={"is_disabled":True})
+            except TelegramError:
+                pass
+        elif (sender == config["user_id"] and chat == config["chat_id"]
+                and text and not text.startswith("/")):
+            # Ignoring this silently is the dangerous option: it looks
+            # identical to a captured directive that never ran.
+            try:
+                api.call("sendMessage",chat_id=chat,text=(
+                    "Not recorded. Prefix a directive with > or /do — "
+                    "plain messages here are not instructions."),
+                    link_preview_options={"is_disabled":True})
+            except TelegramError:
+                pass
+        if body == "/status" and sender == config["user_id"] and chat in {
+                config["chat_id"], config.get("monitor_chat_id")}:
+            # Say something before the work starts. Building the status calls out
+            # to GitHub and git for every project, and silence during that is
+            # indistinguishable from never having received the message.
+            try:
+                api.call("sendChatAction", chat_id=chat, action="typing")
+            except TelegramError:
+                pass
+            try:
+                api.call("sendMessage",chat_id=chat,text=status_report(conn,config)[:3500],
+                    link_preview_options={"is_disabled":True})
+            except TelegramError:
+                pass  # A missed status reply is recoverable; the next /status re-reads live state.
+
+
+LISTENER_STALE_AFTER = 90
+
+
+def listener_is_live(conn, now=None):
+    """True when a listener has checked in recently enough to own the poll."""
+    row = conn.execute("SELECT value FROM telegram_meta WHERE key='listener_heartbeat'").fetchone()
+    if not row:
+        return False
+    try:
+        return (now or time.time()) - float(row[0]) < LISTENER_STALE_AFTER
+    except (TypeError, ValueError):
+        return False
+
+
+def listen(state=DEFAULT_STATE, config_path=CONFIG, api=None, once=False):
+    """Long-poll Telegram so a message is answered in seconds, not on the tick.
+
+    The minute tick is fine for delivering cards but leaves up to a minute of
+    silence after TK sends something, which reads exactly like the bot being
+    down. This holds a long poll open and handles updates as they land.
+
+    There is still only ever ONE poller. While this process heartbeats, the tick
+    skips getUpdates and does collection and delivery only; if this dies, the
+    heartbeat goes stale within 90 seconds and the tick resumes polling on its
+    own. Confirming a getUpdates offset makes Telegram forget earlier updates,
+    so two live pollers would steal each other's messages.
+    """
+    if not Path(config_path).exists():
+        return {"status": "not_configured"}
+    config = json.loads(Path(config_path).read_text())
+    if not config.get("enabled"):
+        return {"status": "disabled"}
+    api = api or API(config["token"])
+    conn = connect(state)
+    try:
+        schema(conn)
+        while True:
+            conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('listener_heartbeat',?)",
+                         (str(time.time()),))
+            with lock(Path(state) / "telegram.lock"):
+                row = conn.execute("SELECT value FROM telegram_meta WHERE key='offset'").fetchone()
+                try:
+                    updates = api.call("getUpdates", offset=int(row[0]) if row else 0,
+                                       timeout=25, limit=25,
+                                       allowed_updates=["callback_query", "message", "my_chat_member"])
+                except TelegramError:
+                    updates = []          # Transport hiccup; the next poll retries.
+                for update in updates:
+                    config = json.loads(Path(config_path).read_text())   # setup may have changed it
+                    handle_update(conn, config, api, update)
+                    conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('offset',?)",
+                                 (str(update["update_id"] + 1),))
+            if once:
+                return {"status": "ok", "handled": len(updates)}
+    finally:
+        conn.close()
+
+
 def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
     if not Path(config_path).exists():
         return {"status":"not_configured"}
@@ -1134,119 +1313,16 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
     try:
         with lock(Path(state)/"telegram.lock"):
             schema(conn)
-            offset = conn.execute("SELECT value FROM telegram_meta WHERE key='offset'").fetchone()
-            updates = api.call("getUpdates",offset=int(offset[0]) if offset else 0,
-                timeout=0,limit=25,allowed_updates=["callback_query","message","my_chat_member"])
+            # One poller only. A live listener owns getUpdates; this tick then
+            # does collection and delivery and touches no updates.
+            if listener_is_live(conn):
+                updates = []
+            else:
+                offset = conn.execute("SELECT value FROM telegram_meta WHERE key='offset'").fetchone()
+                updates = api.call("getUpdates",offset=int(offset[0]) if offset else 0,
+                    timeout=0,limit=25,allowed_updates=["callback_query","message","my_chat_member"])
             for update in updates:
-                if "callback_query" in update:
-                    query = update["callback_query"]
-                    response = decide(conn,config,query)
-                    try:
-                        api.call("answerCallbackQuery",callback_query_id=query["id"],text=response[:190],show_alert=True)
-                    except TelegramError:
-                        pass  # Decision is persisted even when Telegram's short callback TTL expires.
-                    parts = str(query.get("data", "")).split(":")
-                    if len(parts) == 3:
-                        card = conn.execute("SELECT * FROM telegram_cards WHERE id=?", (parts[1],)).fetchone()
-                        if card and card["decision"] in {"accept","changes","pause"} and card["decided_by"] == config["user_id"]:
-                            try:
-                                api.call("editMessageText",chat_id=config["chat_id"],message_id=card["message_id"],
-                                    text=card["message"][:3500]+"\n\nDecision recorded: "+card["decision"],
-                                    reply_markup={"inline_keyboard":[]})
-                            except TelegramError:
-                                pass
-                elif "my_chat_member" in update:
-                    # Fires when the bot is added to a group, and is delivered even
-                    # under privacy mode — unlike an ordinary group message. Adding
-                    # the bot is therefore enough to designate the monitor channel.
-                    membership = update["my_chat_member"]
-                    joined = (membership.get("new_chat_member") or {}).get("status") in {"member","administrator"}
-                    chat = membership.get("chat", {})
-                    if (joined and membership.get("from",{}).get("id") == config["user_id"]
-                            and not config.get("monitor_chat_id")
-                            and chat.get("type") in {"group","supergroup","channel"}
-                            and chat.get("id") != config["chat_id"]):
-                        config["monitor_chat_id"] = chat["id"]
-                        save_config(config)
-                        try:
-                            api.call("sendMessage",chat_id=config["chat_id"],
-                                text=f"Monitor channel paired: {short(chat.get('title','untitled'),80)} "
-                                     f"({chat['id']}). Read-only fleet lines go there; approvals stay here.")
-                        except TelegramError:
-                            pass
-                elif "message" in update:
-                    # The ONLY text this bot acts on. Every other message is ignored:
-                    # free-form Telegram text is not an agent prompt and grants no authority.
-                    message = update["message"]
-                    body = str(message.get("text","")).strip().split("@")[0].lower()
-                    # First word only, so "/do fix the sitemap" matches the command
-                    # while the rest stays as the directive text.
-                    head = body.split(None, 1)[0] if body.split() else ""
-                    sender = message.get("from",{}).get("id")
-                    chat = message.get("chat",{}).get("id")
-                    if sender == config["user_id"] and not config.get("monitor_chat_id"):
-                        # Capture here rather than in a second poller. Confirming a
-                        # getUpdates offset makes Telegram forget earlier updates, so
-                        # any separate pairing process races this tick and loses.
-                        designated, title = monitor_chat_of(message, config["chat_id"])
-                        if designated:
-                            config["monitor_chat_id"] = designated
-                            save_config(config)
-                            try:
-                                api.call("sendMessage",chat_id=config["chat_id"],
-                                    text=f"Monitor channel paired: {short(title,80)} ({designated}). "
-                                         "This group receives read-only fleet lines. "
-                                         "Approvals stay in this private chat.")
-                            except TelegramError:
-                                pass
-                    text = str(message.get("text","")).strip()
-                    directive = None
-                    if text.startswith(">"):
-                        directive = text[1:].strip()
-                    elif head == "/do":
-                        parts = text.split(None, 1)
-                        directive = parts[1].strip() if len(parts) > 1 else ""
-                    if (directive is not None and sender == config["user_id"]
-                            and chat == config["chat_id"] and directive):
-                        # Recorded as a directive, NOT executed. Free-form text is
-                        # still not an agent prompt: this writes a row and answers
-                        # with what it wrote. Turning it into work needs routing,
-                        # which needs a model, which this tick does not have.
-                        conn.execute("INSERT INTO telegram_directives(ts,text) VALUES (?,?)",
-                                     (time.time(), short(directive, 2000)))
-                        number = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-                        try:
-                            api.call("sendMessage",chat_id=chat,
-                                text=f"Got it — #{number}. I will come back when I need you.",
-                                link_preview_options={"is_disabled":True})
-                        except TelegramError:
-                            pass
-                    elif (sender == config["user_id"] and chat == config["chat_id"]
-                            and directive == ""):
-                        try:
-                            api.call("sendMessage",chat_id=chat,
-                                text="Empty directive. Put the instruction after > or /do.",
-                                link_preview_options={"is_disabled":True})
-                        except TelegramError:
-                            pass
-                    elif (sender == config["user_id"] and chat == config["chat_id"]
-                            and text and not text.startswith("/")):
-                        # Ignoring this silently is the dangerous option: it looks
-                        # identical to a captured directive that never ran.
-                        try:
-                            api.call("sendMessage",chat_id=chat,text=(
-                                "Not recorded. Prefix a directive with > or /do — "
-                                "plain messages here are not instructions."),
-                                link_preview_options={"is_disabled":True})
-                        except TelegramError:
-                            pass
-                    if body == "/status" and sender == config["user_id"] and chat in {
-                            config["chat_id"], config.get("monitor_chat_id")}:
-                        try:
-                            api.call("sendMessage",chat_id=chat,text=status_report(conn,config)[:3500],
-                                link_preview_options={"is_disabled":True})
-                        except TelegramError:
-                            pass  # A missed status reply is recoverable; the next /status re-reads live state.
+                handle_update(conn, config, api, update)
                 conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('offset',?)", (str(update['update_id']+1),))
             request_inspection(conn,state)
             read_inspection_verdicts(conn,state)
@@ -1339,6 +1415,7 @@ def main():
     config.add_argument("--basis",choices=["commit","deployment","off"],default="off")
     sub.add_parser("monitor")
     sub.add_parser("preview")
+    sub.add_parser("listen")
     change = sub.add_parser("record-change")
     change.add_argument("--product",required=True)
     change.add_argument("--kind",choices=["commit","deployment"],required=True)
@@ -1357,6 +1434,9 @@ def main():
             print("Bot configuration exists; inspect setup state before retrying." if CONFIG.exists()
                   else "Nothing was saved. Your token has not been printed or logged.",file=sys.stderr)
             raise SystemExit(1) from None
+        return
+    if args.action == "listen":
+        print(json.dumps(listen()))
         return
     if args.action == "monitor":
         try:
