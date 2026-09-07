@@ -39,20 +39,21 @@ For any workspace using Agent OS:
 1. **Normalize the request.** Capture the requested outcome, known product/workspace, task class, constraints, source work-item when present, and explicit human gates.
 2. **Resolve execution context when work may mutate state or overlap active work.** Read `docs/proposals/EXECUTION_CONTEXT_AND_WORKSPACE_ISOLATION.md` for human exploration, consultation, governed execution, verification, workspace isolation, and overlap rules. Human-started ungoverned sessions default to `human_exploration`; curiosity does not imply backlog or mutation authority.
 3. **Resolve persistent-autonomy guardrails when the task can create, select, interrupt, or continue autonomous work.** Read `docs/proposals/AUTONOMOUS_OPERATING_GUARDRAILS.md` for interruptibility, objective leases, idea promotion, attention budgets, evidence freshness, shadow policy, rollback, fallback chains, and human-intent versioning.
-4. **Resolve product and environment truth.** Read `registry/product-routing.yaml`, local product/workspace instructions, and `.agent-os/` metadata when present. Local metadata may add implementation detail but must not redefine canonical product roles.
-5. **Load governance before execution.** Read `policies/AUTONOMY_POLICY.md`, `policies/HANDOFF_POLICY.md`, and `policies/CROSS_MARKET_POLICY.md` when cross-product recommendation is relevant. Preserve protected surfaces and approval boundaries.
-6. **Resolve organizational ownership.** Read `registry/agents.yaml` and select the minimum agent set responsible for the task. Apply the agent-vs-skill test before proposing a new persistent agent.
-7. **Resolve capabilities.** Read `skills/skill-resolver/SKILL.md` and select the minimum sufficient approved skill set from `registry/skills.yaml`.
-8. **Load only necessary identity and context.** Read selected agents' `IDENTITY.md` files and only the product/workspace context needed for the task.
-9. **Resolve recurring-work requirements when applicable.** If the work repeats, compose with `skills/owned/recurring-work/SKILL.md`; a schedule never grants authority.
-10. **Resolve execution environment.** Use the matching adapter and available harness/host capabilities. Models, harnesses, and hosts are execution dependencies; none may silently expand authority.
-11. **Execute within the task envelope.** Do not widen scope because a tool, credential, harness, or host makes broader action possible.
-12. **Verify the intended result.** Execution is incomplete until the relevant build, test, preview, browser, data, or other checks have run.
-13. **Return evidence and unresolved gates.** Record what changed, where it ran, verification results, uncertainty, cost when material, and anything still requiring human approval.
+4. **Resolve delegation when work is decomposed or more than one execution/support instance is considered.** Read `docs/proposals/MINIMUM_SUFFICIENT_TEAM_AND_DELEGATION.md` before adding supporting roles, temporary sub-agents, child tasks, parallel children, or sub-harness delegation. One accountable owner remains responsible; delegation may narrow but never widen authority, context, budget, or scope.
+5. **Resolve product and environment truth.** Read `registry/product-routing.yaml`, local product/workspace instructions, and `.agent-os/` metadata when present. Local metadata may add implementation detail but must not redefine canonical product roles.
+6. **Load governance before execution.** Read `policies/AUTONOMY_POLICY.md`, `policies/HANDOFF_POLICY.md`, and `policies/CROSS_MARKET_POLICY.md` when cross-product recommendation is relevant. Preserve protected surfaces and approval boundaries.
+7. **Resolve organizational ownership.** Read `registry/agents.yaml` and select the minimum agent set responsible for the task. Apply the agent-vs-skill test before proposing a new persistent agent.
+8. **Resolve capabilities.** Read `skills/skill-resolver/SKILL.md` and select the minimum sufficient approved skill set from `registry/skills.yaml`.
+9. **Load only necessary identity and context.** Read selected agents' `IDENTITY.md` files and only the product/workspace context needed for the task.
+10. **Resolve recurring-work requirements when applicable.** If the work repeats, compose with `skills/owned/recurring-work/SKILL.md`; a schedule never grants authority.
+11. **Resolve execution environment.** Use the matching adapter and available harness/host capabilities. Models, harnesses, and hosts are execution dependencies; none may silently expand authority.
+12. **Execute within the task envelope.** Do not widen scope because a tool, credential, harness, or host makes broader action possible.
+13. **Verify the intended result.** Execution is incomplete until the relevant build, test, preview, browser, data, or other checks have run.
+14. **Return evidence and unresolved gates.** Record what changed, where it ran, verification results, uncertainty, cost when material, and anything still requiring human approval.
 
 The target resolution chain is:
 
-**intent → work-item when crossing boundaries → task → product/context → authorization/policy → agent + skills → harness → host → execution → verification → evidence**
+**intent → work-item when crossing boundaries → task → product/context → authorization/policy → accountable agent + minimum sufficient support → harness/children as needed → host → execution → verification → evidence**
 
 `docs/CONTROL_PLANE_CHARTER.md` defines the architecture and staged migration. Existing portable contracts and future control-plane contracts are complementary rather than competing object models.
 
@@ -88,7 +89,10 @@ LEDGATo participates only when the work materially intersects its defined govern
 ## Operating Rules
 
 - The task is primary for execution. Portable work items carry intent across boundaries without granting execution authority.
-- Identities are durable. Skills are composable and task-specific.
+- Every governed task has one accountable owner; supporting instances and children do not erase parent accountability.
+- Identities are durable. Skills are composable and task-specific. Temporary sub-agents are ephemeral unless explicitly promoted through human-approved organizational design.
+- Use the minimum sufficient workforce. Add supporting roles or child instances only when they materially improve quality, risk, speed, verification, or context/tool fit.
+- Delegation may narrow authority, scope, budget, context, tools, and time; it may never widen them.
 - Agent identity may be concurrent; mutable execution authority and workspace ownership may not be implicit or shared.
 - Human exploration is allowed to be context-aware without automatically becoming canonical work.
 - Curiosity is not backlog; promotion into executable work must be explicit or delegated by policy.
