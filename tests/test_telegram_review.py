@@ -116,13 +116,17 @@ class TelegramReviewTests(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_needs_changes_pauses_without_starting_another_worker(self):
+    def test_feedback_pauses_and_records_distinct_reason(self):
         conn,task,config,query = self.card()
         try:
-            query["data"] = query["data"].replace(":accept",":changes")
-            self.assertIn("execution paused",telegram.decide(conn,config,query))
+            query["data"] = query["data"].replace(":accept",":redo")
+            result = telegram.decide(conn,config,query)
+            self.assertIn("Rethink the approach",result)
             self.assertEqual(bridge.order_row(conn,task.id)["revoked"],1)
+            self.assertEqual(bridge.order_row(conn,task.id)["phase"],"redo")
             self.assertNotEqual(kb.get_task(conn,task.id).status,"running")
+            card = conn.execute("SELECT feedback FROM telegram_cards").fetchone()
+            self.assertIn("Rethink",card["feedback"])
         finally:
             conn.close()
 
@@ -204,6 +208,22 @@ class TelegramReviewTests(unittest.TestCase):
                        "publish_action": {"kind": "commit", "paths": ["a"]}}
         self.assertEqual([n for n, _l, _d in telegram.publish_choices(commit_only)], ["commit"])
         self.assertEqual([n for n, _l, _d in telegram.publish_choices({"workspace": "/tmp"})], ["accept"])
+
+    def test_feedback_choices_are_distinct_and_structured(self):
+        """Feedback is a set of distinct selectable buttons, not one vague rejection."""
+        names = [n for n, _label, _reason in telegram.FEEDBACK_CHOICES]
+        self.assertEqual(len(names), len(set(names)))  # distinct actions
+        self.assertIn("offvoice", names)
+        self.assertIn("wrongclaim", names)
+        self.assertEqual(telegram.feedback_action("redo"),
+                         "Rethink the approach. The current one does not answer what was asked.")
+        self.assertIsNone(telegram.feedback_action("pause"))
+
+    def test_feedback_never_routes_to_publish(self):
+        """A feedback press must not be mistaken for an approval."""
+        self.assertIsNone(telegram.feedback_action("accept"))
+        self.assertIsNone(telegram.feedback_action("commit"))
+        self.assertIsNone(telegram.feedback_action("deploy"))
 
     def test_batch_publish_refuses_if_the_branch_moved(self):
         """The branch shown on the card must be the branch that gets pushed."""

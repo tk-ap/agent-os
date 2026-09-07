@@ -194,19 +194,20 @@ made while configuration is missing or disabled.
 ## Verification
 
 Tests cover acceptance, identity/chat/message checks, replay, expiry, revocation,
-modified files, change requests, deduplication, uncertain delivery, per-product
-thresholds, absence of network access when unconfigured, two-chat routing (monitor
-to group, private to TK, monitor held when unpaired), fleet-event once-only
-reporting, and drift/memory signal batching.
+modified files, distinct feedback choices, deduplication, uncertain delivery,
+per-product thresholds, absence of network access when unconfigured, two-chat
+routing (monitor to group, private to TK, monitor held when unpaired),
+fleet-event once-only reporting, and drift/memory signal batching.
 
 Live transport is verified as of 2026-09-06: a message delivered to the private
 chat, a `/status` sent from Telegram and consumed by the tick (offset advanced
 735430119 to 735430120), the monitor group captured from a `my_chat_member`
 event, and a message delivered to that group.
 
-**On-device buttons remain unverified.** No card carrying Accept / Needs changes
-/ Pause has been delivered or pressed, because no fleet task has ever reached
-review — the acceptance path is covered by tests against mocks only.
+**On-device buttons remain unverified.** No card carrying the approval buttons or
+the distinct feedback buttons has been delivered or pressed, because no fleet
+task has ever reached review — the decision path is covered by tests against
+mocks only.
 
 API behavior was checked against Telegram's official
 [Bot API](https://core.telegram.org/bots/api) and

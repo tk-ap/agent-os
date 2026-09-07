@@ -119,7 +119,7 @@ def migrate(conn):
     install time. Each entry is idempotent and safe on a fresh database.
     """
     additions = {
-        "telegram_cards": {"channel": "TEXT NOT NULL DEFAULT 'private'"},
+        "telegram_cards": {"channel": "TEXT NOT NULL DEFAULT 'private'", "feedback": "TEXT"},
         # Local attribution. The portable contract declares owning_agent; this is
         # where the runtime reads it without re-parsing the payload. NULL is
         # meaningful: unattributed work is a workforce coverage gap, not an error.
@@ -594,7 +594,7 @@ def collect_reviews(conn, state):
         text += "outside this machine.\n"
         text += "\n**YOUR OPTIONS**\n"
         text += "\n".join(describe_publish(order)) + "\n"
-        text += "  Needs changes — send it back and stop the current attempt.\n"
+        text += "\n".join(describe_feedback()) + "\n"
         text += "  Pause — stop for now. Nothing is deleted.\n"
         found = links_for(order)
         if found:
@@ -1176,6 +1176,31 @@ def publish_choices(order):
     return choices
 
 
+# Distinct feedback TK can select instead of one vague "needs changes". Each
+# entry is (action, button label, structured reason). The reason is what the
+# producer actually receives, so the feedback is input, not just a rejection.
+FEEDBACK_CHOICES = [
+    ("redo", "Wrong direction", "Rethink the approach. The current one does not answer what was asked."),
+    ("addmore", "Not finished", "The work is incomplete. Finish what was asked before it is reviewed again."),
+    ("trim", "Too much", "It did more than asked. Narrow it to the stated scope."),
+    ("offvoice", "Off voice", "The content is off-register for this surface. Rewrite in the correct voice."),
+    ("wrongclaim", "Unsupported claim", "A claim has no supporting evidence. Remove it or source it."),
+]
+
+
+def describe_feedback():
+    """The option lines for the card, one per distinct feedback choice."""
+    return [f"  {label} — {reason}" for _action, label, reason in FEEDBACK_CHOICES]
+
+
+def feedback_action(action):
+    """Return the structured reason for a feedback button, or None if not feedback."""
+    for name, _label, reason in FEEDBACK_CHOICES:
+        if name == action:
+            return reason
+    return None
+
+
 def describe_publish(order):
     """The option lines for the card, one per available decision."""
     return [f"  {label} — {detail}" for _action, label, detail in publish_choices(order)]
@@ -1244,7 +1269,9 @@ def decide(conn, config, query):
         message.get("chat",{}).get("id") != config["chat_id"]):
         return "Not authorized"
     parts = str(query.get("data", "")).split(":")
-    if len(parts) != 3 or parts[0] != "aos" or parts[2] not in {"accept","commit","deploy","changes","pause"}:
+    feedback_actions = {name for name, _label, _reason in FEEDBACK_CHOICES}
+    valid = {"accept","commit","deploy","pause"} | feedback_actions
+    if len(parts) != 3 or parts[0] != "aos" or parts[2] not in valid:
         return "Unknown decision"
     card = conn.execute("SELECT * FROM telegram_cards WHERE id=?", (parts[1],)).fetchone()
     if not card or card["message_id"] != message.get("message_id") or card["decision"]:
@@ -1302,9 +1329,16 @@ def decide(conn, config, query):
             # would leave TK believing work was saved when it was not.
             result = f"Accepted, but saving failed: {short(str(exc), 120)}"
     else:
-        # Both actions stop further execution. Changes require a fresh bounded work order.
+        # Feedback and pause both stop further execution. Feedback is distinct
+        # input the producer receives, not just a rejection: record it on the
+        # order and name it in the confirmation so it is not lost.
+        reason = feedback_action(action)
         conn.execute("UPDATE agent_os_orders SET revoked=1,phase=? WHERE task_id=?", (action,task.id))
-        result = "Changes requested; execution paused." if action == "changes" else "Execution paused."
+        if reason:
+            conn.execute("UPDATE telegram_cards SET feedback=? WHERE id=?", (reason, card["id"]))
+            result = "Sent back with feedback: " + reason
+        else:
+            result = "Execution paused."
     conn.execute("UPDATE telegram_cards SET decision=? WHERE id=?", (action,card["id"]))
     return result
 
@@ -1331,7 +1365,8 @@ def deliver(conn, config, api):
                 except (ValueError, TypeError):
                     approved = {}
                 actions = [(label, name) for name, label, _detail in publish_choices(approved)]
-            actions += [("Needs changes","changes"),("Pause","pause")]
+            actions += [(label, name) for name, label, _reason in FEEDBACK_CHOICES]
+            actions += [("Pause", "pause")]
             # One row per button: "Approve & publish" must never sit inches from
             # "Approve & save" on a phone.
             payload["reply_markup"] = {"inline_keyboard":[
@@ -1378,10 +1413,12 @@ def handle_update(conn, config, api, update):
         parts = str(query.get("data", "")).split(":")
         if len(parts) == 3:
             card = conn.execute("SELECT * FROM telegram_cards WHERE id=?", (parts[1],)).fetchone()
-            if card and card["decision"] in {"accept","commit","deploy","changes","pause"} and card["decided_by"] == config["user_id"]:
+            decided = {"accept","commit","deploy","pause"} | {n for n,_l,_r in FEEDBACK_CHOICES}
+            if card and card["decision"] in decided and card["decided_by"] == config["user_id"]:
                 try:
+                    suffix = card["decision"] + (" — " + card["feedback"] if card["feedback"] else "")
                     api.call("editMessageText",chat_id=config["chat_id"],message_id=card["message_id"],
-                        text=card["message"][:3500]+"\n\nDecision recorded: "+card["decision"],
+                        text=card["message"][:3500]+"\n\nDecision recorded: "+suffix,
                         reply_markup={"inline_keyboard":[]})
                 except TelegramError:
                     pass
