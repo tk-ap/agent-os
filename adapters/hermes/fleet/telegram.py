@@ -1103,7 +1103,8 @@ def route_directives(conn, state, now=None):
                 "product": "Name the owning product from registry/product-routing.yaml by the repository "
                            "named in the directive; use agent-os-workforce only for operating-layer work.",
                 "capabilities": "Declare the minimum capabilities the directed work needs (filesystem, "
-                                "and git when branch/PR work is required). Shell/git routes only to Codex.",
+                                "and git when branch/PR work is required). Git runs on Codex or "
+                                "Claude; shell routes only to Codex.",
             },
             "acceptance_criteria": [
                 "Names one owning agent that exists in registry/agents.yaml",

@@ -2,6 +2,18 @@ version: 0.1.0
 status: v0alpha1
 mode: declarative-non-executable
 
+# This registry is data. The executable local-file binding lives in the adapter.
+execution_bindings:
+  hermes-fleet:
+    adapter: adapters/hermes/fleet
+    entrypoint: adapters/hermes/fleet_cli.py
+    dispatcher: hermes_cli.kanban_db_dispatch.dispatch_once
+    trigger: hermes-cron-no-agent
+    harnesses: [codex-cli, claude-code]
+    scope: local-file-work
+    verification: review-required-after-cli-exit
+    unavailable: [opencode]
+
 # Named harness registry.
 #
 # Each entry describes an agentic executor as an instance of
@@ -27,6 +39,30 @@ principles:
     task envelope, authorization state, and policy boundary. Delegation
     creates no new authority and no new product ownership.
 
+# Browser E2E is a required verification capability. The priority identifies
+# the harness to finish first; it does not bypass the fail-closed attestation
+# bridge or authorize browser execution by itself.
+browser_e2e:
+  priority_harness: hermes
+  status: priority-attestation-work
+  coverage:
+    - route-and-navigation-smoke
+    - critical-user-paths
+    - interaction-and-state-transitions
+    - responsive-desktop-mobile-layouts
+    - keyboard-and-accessibility-basics
+    - visual-screenshot-review
+    - console-and-network-errors
+    - failure-denial-and-recovery-paths
+    - evidence-capture-and-task-attachment
+  required_evidence:
+    - rendered-route-checks
+    - critical-user-path
+    - failure-or-denial-path
+    - console-and-network-review
+    - responsive-or-mobile-check-when-relevant
+  policy_boundary: browser-execution-requires-host-verified-attestation
+
 harnesses:
   hermes:
     id: hermes
@@ -42,6 +78,7 @@ harnesses:
       - human-merge-gated
       - delegation-stays-inside-task-envelope
     selection_hints:
+      - primary-harness-for-browser-e2e-when-host-attestation-is-available
       - prefer-codex-for-heavy-implementation-and-pr-work
       - prefer-claude-code-for-feature-work-and-review
       - prefer-opencode-for-bounded-pr-review
@@ -64,7 +101,7 @@ harnesses:
     provider: anthropic
     role: sub-harness
     mode: remote
-    capabilities: [filesystem, git, shell]
+    capabilities: [filesystem, git]
     credential_classes: [provider-api]
     authority_boundary: policy-controlled
 

@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import time
+import yaml
 
 from . import harnesses
 
@@ -140,10 +141,17 @@ def enqueue(state, order, authority, expires_in=86400, selected=harnesses.SUPPOR
         raise ValueError("Invalid attempt or wall-time budget")
     if not selected or any(h not in harnesses.SUPPORTED for h in selected):
         raise ValueError("Select supported harnesses")
-    if "shell" in order["required_capabilities"] or "git" in order["required_capabilities"]:
-        selected = tuple(h for h in selected if h == "codex-cli")
-        if not selected:
-            raise ValueError("Shell/git execution currently requires Codex; Claude is file-tools-only")
+    # Capability routing is data-driven from the registry: a harness may only
+    # be selected when its declared capabilities cover everything the work
+    # needs. Claude's bash allowlist covers git/gh, so git work may use it;
+    # shell remains Codex-only until the registry says otherwise.
+    registry = yaml.safe_load((ROOT / "registry/harnesses.yaml").read_text())["harnesses"]
+    needed = set(order["required_capabilities"])
+    selected = tuple(h for h in selected
+                     if needed <= set(registry.get(h, {}).get("capabilities", [])))
+    if not selected:
+        raise ValueError(f"No selected harness covers required capabilities "
+                         f"{sorted(needed)} (registry/harnesses.yaml)")
     state = Path(state).resolve()
     conn = connect(state)
     try:

@@ -82,6 +82,22 @@ class FleetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.enqueue()
 
+    def test_git_work_allows_claude_and_codex(self):
+        self.order["required_capabilities"] = ["filesystem", "git"]
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        row = bridge.order_row(conn, task_id)
+        self.assertEqual(json.loads(row["harnesses"]), ["codex-cli", "claude-code"])
+        conn.close()
+
+    def test_shell_work_routes_only_to_codex(self):
+        self.order["required_capabilities"] = ["filesystem", "git", "shell"]
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        row = bridge.order_row(conn, task_id)
+        self.assertEqual(json.loads(row["harnesses"]), ["codex-cli"])
+        conn.close()
+
     def test_expired_and_tampered_work_never_runs(self):
         task_id = self.enqueue()
         conn = bridge.connect(self.state)
