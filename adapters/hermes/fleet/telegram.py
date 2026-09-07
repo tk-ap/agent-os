@@ -1154,6 +1154,16 @@ def perform_publish(order, row, chosen="accept"):
         target = (workspace / candidate).resolve()
         if not str(target).startswith(str(workspace) + os.sep):
             raise ValueError(f"path escapes the workspace: {candidate}")
+    branch, remote = action.get("branch"), action.get("remote", "origin")
+    if chosen == "deploy":
+        # Validate BEFORE committing. Checking after would leave a commit behind
+        # every time a publish was refused — a partial action from a guard whose
+        # whole purpose is to let nothing happen.
+        if not branch:
+            raise ValueError("publishing was declared without a branch")
+        current = git(workspace, "rev-parse", "--abbrev-ref", "HEAD").decode().strip()
+        if current != branch:
+            raise ValueError(f"declared branch {branch} but the workspace is on {current}")
     git(workspace, "add", "--", *paths)
     message = action.get("message") or f"{order['work_id']} (approved by TK through Milchik)"
     git(workspace, "-c", "user.name=Milchik", "-c", "user.email=milchik@agent-os.invalid",
@@ -1161,14 +1171,6 @@ def perform_publish(order, row, chosen="accept"):
     revision = git(workspace, "rev-parse", "--short", "HEAD").decode().strip()
     if chosen != "deploy":
         return f"Saved as {revision} in {workspace.name}. Not published anywhere."
-    branch, remote = action.get("branch"), action.get("remote", "origin")
-    if not branch:
-        raise ValueError("publishing was declared without a branch")
-    current = git(workspace, "rev-parse", "--abbrev-ref", "HEAD").decode().strip()
-    if current != branch:
-        # Refuse rather than guess. Publishing a branch other than the reviewed
-        # one would put something live that nobody looked at.
-        raise ValueError(f"declared branch {branch} but the workspace is on {current}")
     # Never forced. A rejected push means someone else moved the branch, which is
     # a conversation to have, not a state to overwrite.
     git(workspace, "push", remote, f"{branch}:{branch}")

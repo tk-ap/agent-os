@@ -105,6 +105,24 @@ He will only start an item that is `source: human` or already `approved`
 permission, so `/next` skips it and says the top items are waiting on you rather
 than starting one.
 
+## Approving, and publishing
+
+A review card offers **Approve & save** and, when the work item permits it,
+**Approve & publish** as a separate button on its own row.
+
+- **Approve & save** commits the declared paths. Nothing leaves the machine.
+- **Approve & publish** commits and pushes the declared branch, which is what
+  makes the change reachable. The card names the URL it makes live.
+
+The consequence belongs to the press, not to the work item. A card that can
+publish still offers save, and pressing save publishes nothing. A work item can
+narrow what is offered; it can never widen what was pressed.
+
+Publishing refuses if the workspace is on a branch other than the one declared —
+pushing an unreviewed branch would put something live nobody looked at — and it
+never forces. All refusals happen before anything is committed, so a refused
+publish leaves no commit behind.
+
 ## Asking for status
 
 Send `/status` in the private chat or the monitor group. Milchik replies with a
