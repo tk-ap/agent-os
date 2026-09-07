@@ -19,8 +19,11 @@ Use the fleet `status` command to inspect it; it is not the default dashboard bo
 - Scope: local file work only. Publishing, messaging, deployments, purchases,
   credential changes, browser execution, and nested delegation remain out of scope.
 - Harnesses: Codex CLI uses workspace-write and never bypasses approvals/sandboxing.
-  Claude Code uses restricted mode, file tools only, no MCP, and refuses permission
-  prompts. Shell/git tasks route only to Codex because Claude's profile cannot execute them.
+  Claude Code runs file tools plus Bash scoped to git/gh via --allowedTools
+  (Bash(git:*), Bash(gh:*)); anything else is auto-denied in --print + dontAsk
+  mode, and WebFetch/WebSearch are not loaded. Git work may use either harness;
+  shell routes only to Codex. Capability routing is enforced from
+  registry/harnesses.yaml at enqueue time.
 - Billing: API-key environment variables are removed. Codex requires ChatGPT login;
   Claude uses its existing login. There is no API overflow route or automatic purchase.
   Subscription/account-side extra-usage settings are not inspected or changed by this adapter.

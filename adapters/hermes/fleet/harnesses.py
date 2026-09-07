@@ -15,11 +15,15 @@ def command(harness, workspace):
                 "-c", 'forced_login_method="chatgpt"',
                 "-c", 'model_provider="openai"', "--cd", str(workspace), "-"]
     if harness == "claude-code":
-        return ["claude", "--print", "--output-format", "json", "--restricted",
+        # File tools plus Bash, scoped to git/gh via --allowedTools. Anything
+        # not allowlisted is auto-denied in --print + dontAsk mode (verified
+        # live: git runs; arbitrary bash is recorded as a permission denial).
+        # WebFetch/WebSearch are absent from --tools entirely.
+        return ["claude", "--print", "--output-format", "json",
                 "--permission-mode", "dontAsk", "--strict-mcp-config",
                 "--mcp-config", '{"mcpServers":{}}',
-                "--tools", "Read,Write,Edit,Glob,Grep",
-                "--allowedTools", "Read,Write,Edit,Glob,Grep"]
+                "--tools", "Read,Write,Edit,Glob,Grep,Bash",
+                "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(git:*),Bash(gh:*)"]
     raise ValueError(f"Unsupported harness: {harness}")
 
 

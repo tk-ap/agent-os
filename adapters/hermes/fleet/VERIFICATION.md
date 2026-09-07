@@ -25,8 +25,13 @@ working-tree changes were preserved. This is not a committed release or deployme
   behavior are covered.
 - Live Codex CLI subscription-backed execution created the expected disposable
   `smoke.txt`; file contents were independently read and matched. Run: `t_080f04be`.
-- Live Claude Code execution with its existing login and restricted file tools
-  created the same expected fixture. Run: `t_49a09ea2`.
+- Live Claude Code execution with its existing login and a scoped Bash
+  allowlist (git/gh only) created the same expected fixture. Run: `t_49a09ea2`.
+- Boundary re-check after enabling git on Claude (2026-09-07): with the fleet
+  invocation, `git status --porcelain=v1` executed and returned the repo's real
+  untracked file; `cat /proc/sys/kernel/random/boot_id` was denied and recorded
+  in `permission_denials` (the model fell back to the Read tool). Non-git bash
+  is auto-denied; allowlist enforced by --allowedTools, not project settings.
 - Both live runs entered `review`, never automatic `done`.
 - Live fixture evidence: `/tmp/agent-os-live-smoke-lar0o_ed/results.json` and the
   per-harness state directories beside it (temporary artifacts).
