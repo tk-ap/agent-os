@@ -139,6 +139,11 @@ def migrate(conn):
         # A directive started from the backlog via /next carries the backlog
         # work_id so the routed order can be stamped with board provenance.
         "telegram_directives": {"backlog_work_id": "TEXT"},
+        # Execution-context guardrail: governed_execution by default,
+        # verification for inspections, human_exploration/consultation never
+        # enqueued (they live in active_workspaces, not orders).
+        "agent_os_orders": {"owning_agent": "TEXT",
+                            "execution_mode": "TEXT NOT NULL DEFAULT 'governed_execution'"},
     }
     for table, columns in additions.items():
         present = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
@@ -309,6 +314,7 @@ def request_inspection(conn, state, now=None):
                 "verdict_format": "Begin your summary with a line reading exactly 'VERDICT: PASS' or "
                                   "'VERDICT: FAIL', then the per-criterion detail. This line is read "
                                   "by machine; prose around it is read by people.",
+                "execution_mode": "verification",
             },
             "acceptance_criteria": [
                 "Its summary's FIRST LINE is exactly 'VERDICT: PASS' or 'VERDICT: FAIL' and nothing else",
@@ -690,6 +696,37 @@ def collect_approval_requests(conn, state):
              text, request.get("scope") or ""))
 
 
+def collect_collisions(conn):
+    """Surface workspace collisions: a worker refused to touch files because
+    another active context owns an overlapping mutable surface. Nothing was
+    overwritten; TK decides when it is safe to resume."""
+    for row in conn.execute("SELECT * FROM agent_os_orders WHERE phase='collision'").fetchall():
+        if conn.execute("SELECT 1 FROM telegram_cards WHERE task_id=? AND decision IS NULL",
+                        (row["task_id"],)).fetchone():
+            continue
+        event = conn.execute("SELECT detail FROM agent_os_events WHERE task_id=? AND kind='collision' "
+                             "ORDER BY id DESC LIMIT 1", (row["task_id"],)).fetchone()
+        detail = json.loads(event["detail"]) if event else {}
+        key = f"collision:{row['task_id']}:{detail.get('with_context', '?')}"
+        text = f"⚠ {badge(row['owning_agent'])} paused before touching any files. **Your call.**\n\n"
+        text += "**WHAT HAPPENED**\n"
+        text += f"  Task {row['task_id']} ({row['work_id']}) would write mutable surfaces "
+        text += f"already claimed by an active context: `{detail.get('with_context', 'unknown')}`"
+        if detail.get("other_task"):
+            text += f" (task {detail['other_task']})"
+        text += ".\n\n"
+        text += "**WHY**\n"
+        text += "  Two contexts must not silently overwrite the same surface. "
+        text += "The worker stopped before making changes.\n\n"
+        text += "**YOUR OPTIONS**\n"
+        text += "  Resume — re-check and run (only when the other context is done or the surfaces are split).\n"
+        text += "  Deny & cancel — end this task.\n\n"
+        text += "Nothing has been modified."
+        conn.execute("""INSERT OR IGNORE INTO telegram_cards
+            (id,event_key,task_id,snapshot,expires,message) VALUES (?,?,?,?,?,?)""",
+            (secrets.token_urlsafe(12), key, row["task_id"], None, time.time()+86400, text))
+
+
 def enqueue_directed_work(conn, state, routing_row):
     """Turn an accepted routing proposal into the governed work item it proposed.
 
@@ -773,6 +810,98 @@ def enqueue_directed_work(conn, state, routing_row):
     conn.execute("UPDATE telegram_directives SET status='closed', task_id=? WHERE id=?",
                  (task_id, directive_id))
     return task_id, agent, None
+
+
+def hygiene_report(conn):
+    """Flag-only stale-object audit (CONTEXT_RELEASE_INSTANCE_PINNING_AND_
+    DECOMMISSIONING.md). Lists candidates; deletes nothing; proposes nothing
+    into the executable backlog."""
+    sections = []
+    now = time.time()
+    stale_orders = conn.execute("""SELECT task_id, work_id, phase FROM agent_os_orders
+        WHERE phase NOT IN ('accepted','done','denied') AND (revoked=1 OR expires<?)""",
+        (now,)).fetchall()
+    if stale_orders:
+        sections.append(("Stale orders (revoked/expired, non-terminal)",
+                         [f"{r['task_id']} · {r['work_id']} · {r['phase']}" for r in stale_orders]))
+    stale_grants = conn.execute("""SELECT task_id, scope FROM agent_os_grants
+        WHERE consumed=0 AND expires<?""", (now,)).fetchall()
+    if stale_grants:
+        sections.append(("Expired unconsumed grants",
+                         [f"{r['task_id']} · {short(r['scope'], 60)}" for r in stale_grants]))
+    stale_cards = conn.execute("""SELECT id, task_id, channel FROM telegram_cards
+        WHERE decision IS NULL AND expires<?""", (now,)).fetchall()
+    if stale_cards:
+        sections.append(("Expired undecided cards",
+                         [f"{r['id']} · task {r['task_id']} · {r['channel']}" for r in stale_cards]))
+    stale_contexts = conn.execute("""SELECT context_id, repository, mode FROM active_workspaces
+        WHERE status='active' AND last_seen_at<?""", (now - 86400,)).fetchall()
+    if stale_contexts:
+        sections.append(("Stale active contexts (silent > 24h)",
+                         [f"{r['context_id']} · {r['repository']} · {r['mode']}" for r in stale_contexts]))
+    failed = conn.execute("SELECT id, text FROM telegram_directives WHERE status='route_failed'").fetchall()
+    if failed:
+        sections.append(("Directives that failed routing",
+                         [f"#{r['id']} · {short(r['text'], 60)}" for r in failed]))
+    orphans = []
+    if (ROOT / "docs/proposals").is_dir():
+        load_text = ""
+        for path in (ROOT / "BOOTSTRAP.md", ROOT / "adapters/hermes/BOOTSTRAP.md"):
+            if path.exists():
+                load_text += path.read_text()
+        for doc in sorted((ROOT / "docs/proposals").glob("*.md")):
+            if doc.name not in load_text:
+                orphans.append(doc.name)
+    if orphans:
+        sections.append(("Proposal docs not reachable from any load path", orphans))
+    return sections
+
+
+def lease_manage(conn, args):
+    if args.list:
+        for row in conn.execute("SELECT * FROM objective_leases ORDER BY valid_until"):
+            state = "revoked" if row["revoked"] else ("expired" if row["valid_until"] <= time.time() else "active")
+            print(f"{row['id']}  {state}  until {time.ctime(row['valid_until'])}  owner={row['owner']}")
+            print(f"    {row['objective']}")
+        return
+    if args.revoke:
+        conn.execute("UPDATE objective_leases SET revoked=1 WHERE id=?", (args.revoke,))
+        conn.commit()
+        print(f"Lease {args.revoke} revoked.")
+        return
+    if args.create:
+        if not args.id or not args.objective:
+            raise SystemExit("--create needs --id and --objective")
+        conn.execute("INSERT OR REPLACE INTO objective_leases(id,objective,owner,valid_until,revoked) "
+                     "VALUES (?,?,?,?,0)",
+                     (args.id, args.objective, args.owner, time.time() + args.days * 86400))
+        conn.commit()
+        print(f"Lease {args.id} active until {time.ctime(time.time() + args.days * 86400)}.")
+
+
+def workspace_manage(conn, args):
+    from . import bridge
+    if args.register:
+        bridge.register_workspace(conn, context_id=args.context_id or f"human:{int(time.time())}",
+                                  actor="human", mode=args.mode, repository=args.repository or "unknown",
+                                  workspace=args.workspace or "unspecified",
+                                  mutable_surfaces=args.surfaces)
+        conn.commit()
+        print("Context registered. Release it when the session ends.")
+        return
+    if args.release:
+        bridge.release_workspace(conn, args.context_id)
+        conn.commit()
+        print(f"Context {args.context_id} released.")
+        return
+    rows = conn.execute("SELECT * FROM active_workspaces WHERE status='active' "
+                        "ORDER BY last_seen_at DESC").fetchall()
+    if not rows:
+        print("No active contexts.")
+        return
+    for row in rows:
+        print(f"{row['context_id']}  {row['mode']}  {row['actor']}  "
+              f"{row['repository']} · {short(row['workspace'], 48)}  last_seen {time.ctime(row['last_seen_at'])}")
 
 
 def record_change(conn, product, kind, revision, summary):
@@ -1186,13 +1315,15 @@ def backlog_top(k=3):
         return None
 
 
-def eligible_backlog_item():
+def eligible_backlog_item(conn=None):
     """Highest-ranked backlog item Milchik is actually allowed to start.
 
     IDENTITY.md §09: he may enqueue only work that is `source: human`
     (pre-authorized by TK's own intent) or already `approved`. A high rank on an
     unapproved agent proposal is attention, not permission, so those are skipped
-    rather than started.
+    rather than started. Items anchored to an objective lease must reference a
+    live, unexpired lease — a stale lease is not authority to keep selecting
+    work (AUTONOMOUS_OPERATING_GUARDRAILS §2).
     """
     try:
         import yaml
@@ -1203,9 +1334,26 @@ def eligible_backlog_item():
     open_items = [i for i in items if i.get("status") != "done"]
     if not open_items:
         return None, "The backlog is empty."
+    lease_block = None
     for item in backlog_runtime.rank(open_items):
-        if backlog_runtime.authority_present(item) or item.get("status") == "approved":
-            return item, None
+        if not (backlog_runtime.authority_present(item) or item.get("status") == "approved"):
+            continue
+        lease_id = item.get("objective_lease")
+        if lease_id:
+            if conn is None:
+                lease_block = f"{item['work_id']} declares a lease but lease state is unavailable"
+                continue
+            lease = conn.execute("SELECT * FROM objective_leases WHERE id=? AND revoked=0",
+                                 (lease_id,)).fetchone()
+            if not lease:
+                lease_block = f"{item['work_id']} is anchored to unknown lease {lease_id!r}"
+                continue
+            if lease["valid_until"] <= time.time():
+                lease_block = f"{item['work_id']} is anchored to expired lease {lease_id!r}"
+                continue
+        return item, None
+    if lease_block:
+        return None, f"Nothing eligible: {lease_block}. Renew or re-anchor the lease before starting."
     return None, ("Nothing in the backlog is cleared to start. The top items are "
                   "proposals waiting on your approval.")
 
@@ -1342,6 +1490,16 @@ def status_report(conn, config):
     for row in blocked:
         lines.append(f"  {short(row['title'] or row['id'], 60)}")
     lines.append(f"FLEET          {counts.get('running',0)} running · {counts.get('review',0)} in review")
+
+    active = conn.execute("SELECT * FROM active_workspaces WHERE status='active' "
+                          "ORDER BY last_seen_at DESC LIMIT 6").fetchall()
+    if active:
+        lines.append("")
+        lines.append("ACTIVE CONTEXTS")
+        for context in active:
+            who = context["actor"] + (f" · {context['agent_role']}" if context["agent_role"] else "")
+            lines.append(f"  {context['context_id']:<24} {context['mode']}  {who}")
+            lines.append(f"      {short(context['repository'], 24)} · {short(context['workspace'], 40)}")
 
     ranked = backlog_top(2)
     if ranked:
@@ -1501,7 +1659,7 @@ def decide(conn, config, query, state=None):
         return "Not authorized"
     parts = str(query.get("data", "")).split(":")
     feedback_actions = {name for name, _label, _reason in FEEDBACK_CHOICES}
-    valid = {"accept","commit","deploy","pause","approve","deny"} | feedback_actions
+    valid = {"accept","commit","deploy","pause","approve","deny","resume"} | feedback_actions
     if len(parts) != 3 or parts[0] != "aos" or parts[2] not in valid:
         return "Unknown decision"
     card = conn.execute("SELECT * FROM telegram_cards WHERE id=?", (parts[1],)).fetchone()
@@ -1514,13 +1672,28 @@ def decide(conn, config, query, state=None):
     if not row or not task or row["revoked"]:
         return "Task revoked or missing"
     action = parts[2]
+    if action == "resume":
+        # Collision recovery: TK judged the surfaces reconciled. Re-queue the
+        # SAME task; the worker re-checks overlap before touching files.
+        from .bridge import emit
+        if row["phase"] != "collision":
+            return "Task is not in a collision state"
+        conn.execute("UPDATE agent_os_orders SET phase='queued' WHERE task_id=?", (task.id,))
+        kb.unblock_task(conn, task.id)
+        emit(conn, task.id, "collision_resumed", {"by": config["user_id"]})
+        result = "Resumed. The worker re-checks for collisions before touching files."
+        conn.execute("UPDATE telegram_cards SET decision=? WHERE id=?", (action, card["id"]))
+        return result
     if action in {"approve", "deny"}:
         # Scoped-authority decisions: the task is parked at a protected
         # boundary, not in review. Approve grants ONLY the requested scope and
         # resumes the SAME task; deny terminates it with the denial recorded.
+        # Deny also serves collision cards: ending the task is the cancel path.
         from .bridge import emit
-        if row["phase"] != "waiting_approval":
+        if action == "approve" and row["phase"] != "waiting_approval":
             return "Task is not awaiting approval"
+        if action == "deny" and row["phase"] not in {"waiting_approval", "collision"}:
+            return "Task has no open authority request"
         if card["snapshot"]:
             try:
                 if fingerprint(row) != card["snapshot"]:
@@ -1538,7 +1711,7 @@ def decide(conn, config, query, state=None):
             result = "Approved. The task resumes under the scoped grant; everything else stays blocked."
         else:
             conn.execute("UPDATE agent_os_orders SET revoked=1, phase='denied' WHERE task_id=?", (task.id,))
-            kb.block_task(conn, task.id, reason="Scoped authority denied by the operator")
+            kb.block_task(conn, task.id, reason="Request denied by the operator")
             emit(conn, task.id, "grant_denied", {"scope": short(scope, 300)})
             result = "Denied. The task is cancelled; the denial is recorded with the work."
         conn.execute("UPDATE telegram_cards SET decision=? WHERE id=?", (action, card["id"]))
@@ -1632,7 +1805,11 @@ def deliver(conn, config, api):
         if channel == "private" and card["task_id"]:
             phase_row = conn.execute("SELECT phase FROM agent_os_orders WHERE task_id=?",
                                      (card["task_id"],)).fetchone()
-            if phase_row and phase_row["phase"] == "waiting_approval":
+            if phase_row and phase_row["phase"] == "collision":
+                payload["reply_markup"] = {"inline_keyboard": [
+                    [{"text": "Resume (re-check overlap)", "callback_data": f"aos:{card['id']}:resume"}],
+                    [{"text": "Deny & cancel", "callback_data": f"aos:{card['id']}:deny"}]]}
+            elif phase_row and phase_row["phase"] == "waiting_approval":
                 # One row per button. Approval cards get exactly two: approve
                 # the scoped grant or cancel. No feedback buttons — this is not
                 # a quality judgement, it is an authority decision.
@@ -1697,7 +1874,7 @@ def handle_update(conn, config, api, update, state=None):
         parts = str(query.get("data", "")).split(":")
         if len(parts) == 3:
             card = conn.execute("SELECT * FROM telegram_cards WHERE id=?", (parts[1],)).fetchone()
-            decided = {"accept","commit","deploy","pause","approve","deny"} | {n for n,_l,_r in FEEDBACK_CHOICES}
+            decided = {"accept","commit","deploy","pause","approve","deny","resume"} | {n for n,_l,_r in FEEDBACK_CHOICES}
             if card and card["decision"] in decided and card["decided_by"] == config["user_id"]:
                 try:
                     suffix = card["decision"] + (" — " + card["feedback"] if card["feedback"] else "")
@@ -1819,7 +1996,7 @@ def handle_update(conn, config, api, update, state=None):
             except TelegramError:
                 pass
         if body == "/next" and sender == config["user_id"] and chat == config["chat_id"]:
-            item, refusal = eligible_backlog_item()
+            item, refusal = eligible_backlog_item(conn)
             if refusal:
                 reply = refusal
             else:
@@ -1951,8 +2128,13 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
             collect_fleet(conn)
             sync_backlog_to_board(conn)
             route_directives(conn,state)
+            collect_collisions(conn)
             collect_contributions(conn,state)
             collect_signals(conn)
+            # Stale context rows are awareness clutter, not authority; release
+            # anything silent for a day so collisions compare only live work.
+            conn.execute("UPDATE active_workspaces SET status='released' WHERE status='active' "
+                         "AND last_seen_at < ?", (time.time() - 86400,))
             deliver(conn,config,api)
             return {"status":"ok"}
     finally:
@@ -2035,6 +2217,24 @@ def main():
     sub.add_parser("preview")
     sub.add_parser("listen")
     sub.add_parser("e2e")
+    sub.add_parser("hygiene")
+    lease = sub.add_parser("lease")
+    lease.add_argument("--create", action="store_true")
+    lease.add_argument("--list", action="store_true")
+    lease.add_argument("--revoke")
+    lease.add_argument("--id")
+    lease.add_argument("--objective")
+    lease.add_argument("--owner", default="steward")
+    lease.add_argument("--days", type=int, default=30)
+    workspace = sub.add_parser("workspace")
+    workspace.add_argument("--register", action="store_true")
+    workspace.add_argument("--release", action="store_true")
+    workspace.add_argument("--context-id")
+    workspace.add_argument("--repository")
+    workspace.add_argument("--workspace", dest="workspace_path")
+    workspace.add_argument("--mode", choices=["human_exploration", "consultation", "verification"],
+                           default="human_exploration")
+    workspace.add_argument("--surfaces", nargs="*")
     change = sub.add_parser("record-change")
     change.add_argument("--product",required=True)
     change.add_argument("--kind",choices=["commit","deployment"],required=True)
@@ -2070,7 +2270,19 @@ def main():
     conn = connect(DEFAULT_STATE)
     schema(conn)
     try:
-        if args.action == "record-change":
+        if args.action == "hygiene":
+            sections = hygiene_report(conn)
+            if not sections:
+                print("Hygiene audit: no stale candidates.")
+            for title, items in sections:
+                print(f"\n== {title} ({len(items)})")
+                for item in items:
+                    print(f"  {item}")
+        elif args.action == "lease":
+            lease_manage(conn, args)
+        elif args.action == "workspace":
+            workspace_manage(conn, args)
+        elif args.action == "record-change":
             record_change(conn,args.product,args.kind,args.revision,args.summary)
         elif args.action == "record-signal":
             record_signal(conn,args.scope,args.polarity,args.text)

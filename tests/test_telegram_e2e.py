@@ -200,6 +200,204 @@ class RoutingAcceptanceTests(unittest.TestCase):
 
 
 @unittest.skipIf(kb is None, "Requires installed Hermes environment")
+class GuardrailTests(unittest.TestCase):
+    """Execution-context isolation, instance pinning, objective leases, and
+    hygiene — the guardrail set from the specs on PR #33."""
+
+    setUp = fleet_tests.FleetTests.setUp
+    tearDown = fleet_tests.FleetTests.tearDown
+    enqueue = fleet_tests.FleetTests.enqueue
+    claimed = fleet_tests.FleetTests.claimed
+
+    def _run_worker(self, task, runner):
+        with patch.object(harnesses, "available", return_value=True):
+            bridge.worker(self.state, task.id, task.current_run_id, runner)
+
+    def test_worker_registers_and_releases_execution_context(self):
+        task = self.claimed()
+        calls = []
+        def runner(argv, prompt, workspace, out, err, timeout, alive):
+            calls.append(argv[0])
+            (Path(workspace) / (".agent-os-progress-" + task.id + ".json")).write_text(
+                json.dumps({"summary": "done", "status": "ready_for_review"}))
+            out.write_text('{"type":"result","result":"ok"}\n')
+            return 0
+        self._run_worker(task, runner)
+        conn = bridge.connect(self.state)
+        try:
+            row = conn.execute("SELECT * FROM active_workspaces WHERE context_id=?",
+                               (f"task:{task.id}",)).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row["mode"], "governed_execution")
+            self.assertEqual(row["status"], "released")
+        finally:
+            conn.close()
+
+    def test_conflicting_surface_parks_before_any_execution(self):
+        task = self.claimed()
+        conn = bridge.connect(self.state)
+        bridge.register_workspace(conn, context_id="human:explore", actor="human",
+                                  mode="human_exploration", repository=self.order["owning_product"],
+                                  workspace=str(self.workspace), mutable_surfaces=["**"])
+        conn.commit()
+        conn.close()
+        def forbidden(*args):
+            self.fail("a conflicting task must never reach the harness")
+        self._run_worker(task, forbidden)
+        conn = bridge.connect(self.state)
+        try:
+            row = bridge.order_row(conn, task.id)
+            self.assertEqual(row["phase"], "collision")
+            events = [e[0] for e in conn.execute(
+                "SELECT kind FROM agent_os_events WHERE task_id=?", (task.id,)).fetchall()]
+            self.assertIn("collision", events)
+        finally:
+            conn.close()
+
+    def test_non_overlapping_surface_proceeds_with_evidence(self):
+        task = self.claimed()
+        conn = bridge.connect(self.state)
+        bridge.register_workspace(conn, context_id="human:explore", actor="human",
+                                  mode="human_exploration", repository=self.order["owning_product"],
+                                  workspace=str(self.workspace), mutable_surfaces=["docs/**"])
+        conn.commit()
+        conn.close()
+        order = json.loads(bridge.order_row(bridge.connect(self.state), task.id)["payload"])
+        order["problem_or_opportunity"]["mutable_surfaces"] = ["src/**"]
+        conn = bridge.connect(self.state)
+        conn.execute("UPDATE agent_os_orders SET payload=?, digest=? WHERE task_id=?",
+                     (json.dumps(order), bridge.digest(order), task.id))
+        conn.commit()
+        conn.close()
+        calls = []
+        def runner(argv, prompt, workspace, out, err, timeout, alive):
+            calls.append(argv[0])
+            (Path(workspace) / (".agent-os-progress-" + task.id + ".json")).write_text(
+                json.dumps({"summary": "done", "status": "ready_for_review"}))
+            out.write_text('{"type":"result","result":"ok"}\n')
+            return 0
+        self._run_worker(task, runner)
+        self.assertEqual(len(calls), 1)
+        conn = bridge.connect(self.state)
+        try:
+            events = [e[0] for e in conn.execute(
+                "SELECT kind FROM agent_os_events WHERE task_id=?", (task.id,)).fetchall()]
+            self.assertIn("overlap_noted", events)
+        finally:
+            conn.close()
+
+    def test_execution_mode_stamped_on_orders(self):
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        try:
+            row = bridge.order_row(conn, task_id)
+            self.assertEqual(row["execution_mode"], "governed_execution")
+        finally:
+            conn.close()
+        order = dict(self.order)
+        order["work_id"] = "verify-1"
+        order["problem_or_opportunity"] = {"execution_mode": "verification"}
+        task_id = bridge.enqueue(self.state, order, "test authority")
+        conn = bridge.connect(self.state)
+        try:
+            self.assertEqual(bridge.order_row(conn, task_id)["execution_mode"], "verification")
+        finally:
+            conn.close()
+
+    def test_instance_pinning_recorded_per_attempt(self):
+        self.order["owning_agent"] = "eugene"
+        task = self.claimed()
+        def runner(argv, prompt, workspace, out, err, timeout, alive):
+            (Path(workspace) / (".agent-os-progress-" + task.id + ".json")).write_text(
+                json.dumps({"summary": "done", "status": "ready_for_review"}))
+            out.write_text('{"type":"result","result":"ok"}\n')
+            return 0
+        self._run_worker(task, runner)
+        record = json.loads((Path(self.state) / task.id / "1.json").read_text())
+        instance = record["agent_instance"]
+        self.assertEqual(instance["instance_id"], f"{task.id}:1")
+        self.assertIsNotNone(instance["role"])
+        self.assertIsNotNone(instance["harness_path"])
+        self.assertIsNotNone(instance["policy_digest"])
+
+    def _lease_backlog(self, item):
+        root = self.root / "fake-root"
+        (root / "agents" / "milchik").mkdir(parents=True)
+        (root / "agents" / "milchik" / "backlog.yaml").write_text(json.dumps([item]))
+        self.patch = patch.object(telegram, "ROOT", root)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+
+    def test_expired_objective_lease_blocks_selection(self):
+        self._lease_backlog({
+            "work_id": "w-leased", "source": "human", "lane": "directive",
+            "status": "approved", "priority": {"level": "p0", "confidence": 1.0},
+            "title": "Leased work", "problem": "p",
+            "objective_lease": "obj-alvira"})
+        conn = bridge.connect(self.state)
+        try:
+            telegram.schema(conn)
+            conn.execute("INSERT INTO objective_leases(id,objective,owner,valid_until,revoked) "
+                         "VALUES ('obj-alvira','first paid client','steward',?,0)",
+                         (time.time() - 60,))
+            conn.commit()
+            item, refusal = telegram.eligible_backlog_item(conn)
+            self.assertIsNone(item)
+            self.assertIn("expired", refusal)
+            conn.execute("UPDATE objective_leases SET valid_until=? WHERE id='obj-alvira'",
+                         (time.time() + 86400,))
+            conn.commit()
+            item, refusal = telegram.eligible_backlog_item(conn)
+            self.assertEqual(item["work_id"], "w-leased")
+            self.assertIsNone(refusal)
+        finally:
+            conn.close()
+
+    def test_hygiene_flags_stale_objects_without_deleting(self):
+        conn = bridge.connect(self.state)
+        try:
+            telegram.schema(conn)
+            conn.execute("""INSERT INTO agent_os_grants(task_id,work_id,scope,approver,granted_at,expires,consumed)
+                            VALUES ('t-x','w-x','s',42,?,?,0)""", (time.time()-200, time.time()-100))
+            conn.execute("INSERT INTO telegram_cards(id,event_key,task_id,snapshot,expires,message,delivery) "
+                         "VALUES ('c-x','k-x','t-y',NULL,?,'m','sent')", (time.time()-100,))
+            conn.commit()
+            sections = telegram.hygiene_report(conn)
+            by_title = {title: items for title, items in sections}
+            self.assertIn("Expired unconsumed grants", by_title)
+            self.assertIn("Expired undecided cards", by_title)
+            # Nothing was deleted.
+            self.assertIsNotNone(conn.execute(
+                "SELECT 1 FROM agent_os_grants WHERE task_id='t-x'").fetchone())
+        finally:
+            conn.close()
+
+    def test_collision_resume_requeues_same_task(self):
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        try:
+            telegram.schema(conn)
+            conn.execute("UPDATE agent_os_orders SET phase='collision' WHERE task_id=?", (task_id,))
+            kb.block_task(conn, task_id, reason="fixture collision")
+            card_id = "col-" + task_id
+            conn.execute("""INSERT INTO telegram_cards
+                (id,event_key,task_id,snapshot,expires,message,delivery,message_id)
+                VALUES (?,?,?,?,?,?,?,?)""",
+                (card_id, f"collision:{task_id}", task_id, None, time.time()+86400,
+                 "collision card", "sent", 3))
+            conn.commit()
+            config = {"user_id": 42, "chat_id": 42}
+            query = {"from": {"id": 42}, "message": {"chat": {"id": 42}, "message_id": 3},
+                     "data": f"aos:{card_id}:resume"}
+            result = telegram.decide(conn, config, query)
+            self.assertIn("Resumed", result)
+            self.assertEqual(bridge.order_row(conn, task_id)["phase"], "queued")
+            self.assertIn(kb.get_task(conn, task_id).status, {"ready", "running"})
+        finally:
+            conn.close()
+
+
+@unittest.skipIf(kb is None, "Requires installed Hermes environment")
 class BacklogBoardTests(unittest.TestCase):
     """The canonical-board contract for backlog-driven work."""
 
