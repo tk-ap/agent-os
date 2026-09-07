@@ -1,0 +1,72 @@
+diff --git a/journal/index.html b/journal/index.html
+index 7bdd702..006b81f 100644
+--- a/journal/index.html
++++ b/journal/index.html
+@@ -3,7 +3,7 @@
+ <head>
+   <meta charset="UTF-8" />
+   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+-  <meta name="description" content="BUILD JOURNAL — the front door to TK Ashwood’s founder build archive: current bets, live products, field notes, and deeper product threads." />
++  <meta name="description" content="BUILD JOURNAL — the front door to TK Ashwood’s founder build archive: current bets, verified movement, and deeper product threads." />
+   <link rel="canonical" href="https://ashwood-info.vercel.app/journal" />
+   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+   <meta property="og:type" content="website" /><meta property="og:site_name" content="ASHWOOD" />
+@@ -44,7 +44,7 @@
+   <header class="journal-masthead"><a class="journal-wordmark" href="/" aria-label="ASHWOOD home">ASHWOOD</a><span class="section-label">Builds</span><a class="section-label" href="/connect">Connect ↗</a></header>
+ 
+   <main id="journal-content">
+-    <nav class="journal-index" aria-label="Build Journal quick reference"><a href="#now">Now + Threads</a><a href="#bets">Bets</a><a href="#latest">Latest</a><a href="#participate">Participate</a></nav>
++    <nav class="journal-index" aria-label="Build Journal quick reference"><a href="#now">Now + Threads</a><a href="#bets">Bets</a><a href="#latest">Latest</a><a href="#participate">Facilitation</a></nav>
+ 
+     <section class="journal-hero journal-hero--archive cinematic-opening" aria-labelledby="journal-title">
+       <div class="cinematic-opening__field" aria-hidden="true"><span></span><span></span><span></span></div>
+@@ -63,7 +63,6 @@
+         <a class="build-doorway" href="/journal/ailhat/"><small>Portfolio Intelligence / ailhat</small><h3>What deserves attention next?</h3><p>Identify what across a portfolio deserves attention next, and why. Follow the category thesis, host-agnostic moat, first-value problem, and the shift from monitoring toward judgment and governed action.</p><b>Enter ailhat thread →</b></a>
+         <a class="build-doorway" href="/journal/ledgato/"><small>Operational Reality / LEDGATo</small><h3>Is the agent actually inside the lines?</h3><p>Test whether agent authority and orchestration remain inside the intended boundaries at execution time. Follow the gap between interface and engine, intended orchestration and runtime reality, and what execution-time accountability might require.</p><b>Enter LEDGATo thread →</b></a>
+         <a class="build-doorway" href="/journal/infrastructure/"><small>Foundational Infrastructure / Agent OS</small><h3>How does agent work stay governable?</h3><p>The private control plane beneath the products carries governed execution through task contracts, authorization, routing, hosts, evidence, bounded loops, and human acceptance. It is foundational infrastructure, not a separate public offering.</p><b>Enter infrastructure thread →</b></a>
+-        <a class="build-doorway" href="/journal/field-notes/"><small>Cross-build / Field Notes</small><h3>The ideas that arrive sideways.</h3><p>Personal observations, recurring patterns, failures, and principles that shape several products at once but do not belong to a single roadmap.</p><b>Read Field Notes →</b></a>
+       </div>
+       <p class="professional-signal">PRODUCT STRATEGY · SYSTEMS ARCHITECTURE · CATEGORY DESIGN · AGENT WORKFLOWS · PROTOTYPING · DEPLOYMENT REALITY</p>
+       <p class="professional-signal">FOUNDATIONAL INFRASTRUCTURE · AGENT OS / WORKFORCE · PRIVATE CONTROL PLANE · NOT A PUBLIC OFFERING</p>
+@@ -83,20 +82,20 @@
+       <div class="section-marker"><span>02</span><span>LATEST MOVEMENT</span></div>
+       <div class="current-bets__heading"><h2 id="latest-title">What changed most recently?</h2><p>A few decisions are enough to show the motion. Full chronology belongs in the deeper threads.</p></div>
+       <div class="journal-compact__grid">
+-        <article><span>SEP 01 · AGENT OS</span><h3>Agent OS became the control plane, not another product.</h3><p>The repository is now defined as foundational governed-execution infrastructure beneath the ecosystem rather than a standalone public offering.</p></article>
+-        <article><span>SEP 01 · AGENT OS</span><h3>The contracts became machine-readable.</h3><p>Minimal task, workflow, harness, host, and evidence contracts now give the control plane a shared language without turning on autonomous execution.</p></article>
+-        <article><span>SEP 02 · ASHWOOD</span><h3>READY is not the same as verified.</h3><p>Repeated mobile preview failures clarified a core rule: infrastructure can prove that a build exists; human acceptance still decides whether the product is done.</p></article>
++        <article><span>SEP 04 · AGENT OS</span><h3>Product routing became explicit.</h3><p>The control plane now resolves each active product to its canonical repository and local operating boundaries instead of relying on stale or synthesized locations.</p></article>
++        <article><span>SEP 04 · LEDGATo</span><h3>A denied merge stayed denied.</h3><p>In the first GitHub enforcement proof, the gateway returned DENY, never called the protected merge operation, verified the pull request remained unmerged, and preserved signed evidence. The proof passed in CI; broader platform coverage remains future work.</p></article>
++        <article><span>SEP 04 · ASHWOOD</span><h3>Ideas and build evidence separated.</h3><p>Writing / Ideas now has a distinct editorial boundary from the Build Journal, while related thinking and implementation evidence may still cross-link without becoming one archive.</p></article>
+       </div>
+-      <div class="journal-cta-row"><a href="/journal/infrastructure/">Read the Agent OS infrastructure thread →</a><a href="/journal/field-notes/what-counts-as-done/">Read the new Field Note →</a></div>
++      <div class="journal-cta-row"><a href="/journal/infrastructure/">Read the Agent OS infrastructure thread →</a><a href="/journal/ledgato/">Read the LEDGATo thread →</a></div>
+     </section>
+ 
+     <section id="participate" class="facilitation" aria-labelledby="participate-title">
+-      <div class="section-marker"><span>03</span><span>PARTICIPATE</span></div>
+-      <div class="facilitation__heading"><h2 id="participate-title">Observation can become participation.</h2><p>There are two different ways in: help test a product, or help move a bounded build forward.</p></div>
++      <div class="section-marker"><span>03</span><span>FACILITATION</span></div>
++      <div class="facilitation__heading"><h2 id="participate-title">Observation can become participation.</h2><p>Testing and sponsorship are different. Existing products can invite use and feedback. Build Sponsorship is reserved for genuinely unfinished, separately scoped work with a concrete proof target, execution budget, and human acceptance gate.</p></div>
+       <div class="open-builds">
+-        <article><div><span>ALVIRA · FOUNDING BETA</span><h3>Test the living Context loop.</h3><p>A small number of people receive complimentary permanent access under an approved account in exchange for genuine use and candid feedback—not a report quota, and not a generic free-software waitlist.</p><div class="journal-cta-row"><a href="https://alviratech.vercel.app/founding-beta?source=ashwood">Apply for Founding Beta ↗</a></div></div><dl><div><dt>WHAT WE NEED TO LEARN</dt><dd>Whether the workflow, UI, relevance, continuity, Reflect experience, and ownership model make AI meaningfully more useful over repeated use.</dd></div><div><dt>WHY LIMITED</dt><dd>The cohort stays small enough to learn from individual usage rather than accumulate anonymous signups.</dd></div></dl></article>
++        <article><div><span>ALVIRA · FOUNDING BETA · NOT A SPONSORSHIP REQUEST</span><h3>Test the living Context loop.</h3><p>ALVIRA is already built. This invitation is for product use and candid feedback—not money to build ALVIRA. A small number of people receive complimentary permanent access under an approved account so the existing product can be tested in real repeated use.</p><div class="journal-cta-row"><a href="https://alviratech.vercel.app/founding-beta?source=ashwood">Apply for Founding Beta ↗</a></div></div><dl><div><dt>WHAT WE NEED TO LEARN</dt><dd>Whether the workflow, UI, relevance, continuity, Reflect experience, and ownership model make AI meaningfully more useful over repeated use.</dd></div><div><dt>WHY LIMITED</dt><dd>The cohort stays small enough to learn from individual usage rather than accumulate anonymous signups.</dd></div></dl></article>
+       </div>
+-      <p class="journal-note">Build Sponsorship remains task-level and governed. Funding supports a defined experiment or implementation with a proof target and human acceptance gate—not unrestricted autonomous spending.</p>
++      <p class="journal-note">Sponsorship eligibility rule: the work must be unfinished, optional or accelerative rather than pretending to fund something already built, separable into a bounded task, costed before money is requested, and tied to observable acceptance criteria. Completed products stay in the Journal as evidence; they are not retroactively turned into funding asks.</p>
+       <div class="journal-cta-row"><a href="/connect">Follow the work / sponsorship / Dispatch →</a></div>
+     </section>
+ 
+@@ -104,9 +103,9 @@
+       <p class="journal-kicker">THE ARCHIVE IS DEEPER THAN THE LANDING.</p>
+       <h2 id="closing-title">The interesting part is still the movement.</h2>
+       <p>This page is orientation. The product and infrastructure threads are where the decisions, reversals, technical boundaries, failures, and evidence get to keep their texture.</p>
+-      <div class="journal-closing__links"><a href="/ai-from-zero/">AI, FROM ZERO</a><a href="/journal/alvira/">ALVIRA</a><a href="/journal/ailhat/">ailhat</a><a href="/journal/ledgato/">LEDGATo</a><a href="/journal/infrastructure/">Infrastructure</a><a href="/journal/field-notes/">Field Notes</a></div>
++      <div class="journal-closing__links"><a href="/ai-from-zero/">AI, FROM ZERO</a><a href="/journal/alvira/">ALVIRA</a><a href="/journal/ailhat/">ailhat</a><a href="/journal/ledgato/">LEDGATo</a><a href="/journal/infrastructure/">Infrastructure</a></div>
+     </section>
+   </main>
+   <footer class="journal-footer"><span>ASHWOOD · BUILD JOURNAL</span><span>© 2026 TK Ashwood</span></footer>
+ </body>
+-</html>
+\ No newline at end of file
++</html>
