@@ -74,7 +74,7 @@ products:
     default_skills: [authorization-policy, ecosystem-contracts, end-to-end-verification]
     constraints: [production runtime and buyer proof remain unresolved, do not overclaim enforcement, do not route generic growth or authorization work here unless governance or enforcement is materially involved]
   ashwood:
-    repository: tk-ap/tk-ap.github.io
+    repository: tk-ap/ashwood-info
     live_url: https://ashwood-info.vercel.app
     local_product_manifest: .agent-os/product.yaml
     local_integration_surface: .agent-os/integration-surface.yaml
