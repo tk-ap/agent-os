@@ -2,10 +2,22 @@
 
 Milchik uses a dedicated Telegram bot across two chats: a **monitor channel**
 (group) that carries read-only fleet awareness, and a **private chat** with TK
-that carries approvals, drift, commits, and memory signals. The existing Hermes
-no-model cron tick drives delivery and button handling. No extra daemon or model
-is involved. The gateway must be running; delivery and button processing may
-take about one minute.
+that carries approvals, drift, commits, and memory signals.
+
+Two processes drive it, and **no model runs in either**. The existing Hermes
+no-model cron tick collects work and delivers cards every minute. A listener
+(`milchik-listener.service`) holds a long poll open so a message you send is
+answered in seconds rather than on the next tick.
+
+Only one of them polls Telegram at a time. The listener writes a heartbeat; while
+that is fresh the tick skips `getUpdates` entirely and does collection and
+delivery only. If the listener stops, the heartbeat goes stale after 90 seconds
+and the tick takes polling back on its own — you are back to up-to-a-minute
+latency, not to a broken inbox. Confirming a `getUpdates` offset makes Telegram
+forget every earlier update, so two live pollers would steal each other's
+messages.
+
+The gateway must be running for the cron tick to fire at all.
 
 ## Private setup
 
@@ -128,8 +140,11 @@ send is recorded as `uncertain` and never automatically retried, preventing dupl
 approval prompts after a timeout. Use `telegram preview` to inspect messages and
 delivery/decision state locally. This command never sends a message.
 
-Set `enabled` to false in the private configuration to stop this inbox. Pausing the
-existing Hermes fleet cron job also stops polling but affects fleet dispatch too.
+Set `enabled` to false in the private configuration to stop this inbox; both the
+tick and the listener check it. Pausing the Hermes fleet cron job also stops the
+tick but affects fleet dispatch too. The listener alone is
+`systemctl --user stop milchik-listener` — the tick then resumes polling within
+90 seconds, so stopping it costs latency, not function.
 No credentials are written to logs or repository files. No Telegram connection is
 made while configuration is missing or disabled.
 
