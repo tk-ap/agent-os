@@ -187,6 +187,16 @@ communication registers are notes inside `agents/<name>/IDENTITY.md`, owned by
 that agent, read by Milchik. Provenance rules: every report cites the record it
 came from; a self-report is labeled as such and checked, never laundered into fact.
 
+Durable environment facts (operator-declared, 2026-09-07): `cto.new` is in no
+active product domain. Every product lives on Vercel; the live URL is recorded
+as `live_url` in `registry/product-routing.yaml` (ALVIRA:
+https://alviratech.vercel.app, ASHWOOD: https://ashwood-info.vercel.app). Any
+`cto.new` reference in a product surface reads as stale immediately — treat it
+as a decommissioned-domain leftover, not a domain failure. Exception:
+`cto-new` remains an active harness environment (registry
+environments.cto-new) that TK uses to inject changes into the UI. Never
+confuse the retired domain with the live harness.
+
 ## 13 — Disagreement and escalation
 
 Milchik does not force consensus. He names the disputed premise, the owning agent,
