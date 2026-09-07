@@ -396,15 +396,21 @@ def run_revisions(conn, state, now=None):
             order = json.loads(order_row_["payload"])
         except ValueError:
             continue
-        previous = conn.execute("SELECT failed FROM agent_os_inspections WHERE task_id=? AND verdict='escalated'",
-                                (row["task_id"],)).fetchone()
-        repeated = previous is not None and previous["failed"] == row["failed"]
-        if row["cycles"] >= MAX_REVISION_CYCLES or repeated:
+        # The attempt counter must live where the schema allows and where it
+        # survives a revision: the problem_or_opportunity object, which already
+        # carries the revision lineage. Every revision is a new task_id whose
+        # inspection row restarts at cycles=1, so a per-row counter can never
+        # reach MAX_REVISION_CYCLES and the loop runs away.
+        depth = int((order.get("problem_or_opportunity") or {}).get("revision_cycle", 0))
+        attempt = depth + 1
+        prior_failed = (order.get("problem_or_opportunity") or {}).get("failed_criteria", "")
+        repeated = bool(prior_failed) and prior_failed.strip() == (row["failed"] or "").strip()
+        if attempt >= MAX_REVISION_CYCLES or repeated:
             reason = ("the same problem came back unchanged" if repeated
-                      else f"it has been round {row['cycles']} times")
+                      else f"it has been round {attempt} times")
             conn.execute("UPDATE agent_os_inspections SET verdict='escalated' WHERE task_id=?", (row["task_id"],))
             conn.execute("INSERT OR IGNORE INTO telegram_cards(id,event_key,expires,message) VALUES (?,?,?,?)",
-                (secrets.token_urlsafe(12), f"escalation:{row['task_id']}:{row['cycles']}", time.time()+604800,
+                (secrets.token_urlsafe(12), f"escalation:{row['task_id']}:{attempt}", time.time()+604800,
                  f"{(order_row_['owning_agent'] or 'An agent').title()} could not get this right, "
                  f"and I have stopped trying.\n\n"
                  f"WHAT WAS ASKED\n  {short(order.get('work_id',''), 120)}\n\n"
@@ -414,13 +420,15 @@ def run_revisions(conn, state, now=None):
                  "This needs you or a different owner."))
             continue
         revision = dict(order)
-        revision["work_id"] = f"{order['work_id']}-rev{row['cycles'] + 1}"
+        revision["work_id"] = f"{order['work_id']}-rev{attempt + 1}"
         revision["created_at"] = stamp
-        revision["problem_or_opportunity"] = {
+        revision["problem_or_opportunity"] = dict(order.get("problem_or_opportunity") or {})
+        revision["problem_or_opportunity"].update({
             "statement": "A previous attempt failed its independent check.",
             "original_work_id": order["work_id"],
             "failed_criteria": short(row["failed"], 1500),
-        }
+            "revision_cycle": attempt,
+        })
         revision["constraints"] = dict(order.get("constraints") or {})
         revision["constraints"]["revision"] = (
             "Fix only the failed criteria listed above. Do not redo passing work "
@@ -431,7 +439,7 @@ def run_revisions(conn, state, now=None):
             conn.execute("UPDATE agent_os_inspections SET verdict='escalated' WHERE task_id=?", (row["task_id"],))
             continue
         conn.execute("""UPDATE agent_os_inspections SET verdict=NULL, cycles=?, inspector_task_id=NULL
-            WHERE task_id=?""", (row["cycles"] + 1, row["task_id"]))
+            WHERE task_id=?""", (attempt, row["task_id"]))
 
 
 # Where each product is actually reachable. Nothing is inferred from a repo name.

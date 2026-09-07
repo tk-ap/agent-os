@@ -149,6 +149,73 @@ class TelegramReviewTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_revision_loop_terminates_at_the_cap(self):
+        """A revision that fails again must escalate, not spawn another revision.
+
+        The counter lives on the order payload because each revision is a new
+        task_id whose inspection row restarts at cycles=1. Without carrying the
+        depth forward, the loop ran eight+ revisions deep overnight.
+        """
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        try:
+            telegram.schema(conn)
+            # The prior attempt already consumed the one revision the policy allows,
+            # and this revision has failed too: the next call must not loop again.
+            conn.execute("UPDATE agent_os_orders SET phase='review' WHERE task_id=?", (task_id,))
+            payload = json.loads(conn.execute(
+                "SELECT payload FROM agent_os_orders WHERE task_id=?", (task_id,)).fetchone()["payload"])
+            payload["problem_or_opportunity"]["revision_cycle"] = 1  # depth 1 -> attempt 2 -> at cap
+            conn.execute("UPDATE agent_os_orders SET payload=? WHERE task_id=?",
+                         (json.dumps(payload), task_id))
+            conn.execute("""INSERT OR REPLACE INTO agent_os_inspections
+                (task_id,inspector_task_id,verdict,failed,cycles) VALUES (?,?,?,?,1)""",
+                (task_id, "t_inspector_fixture", "fail", "Still wrong. Criterion 2 fails."))
+            telegram.run_revisions(conn, self.state, now=time.time())
+            # Escalated: verdict flipped, a card queued, and no extra order spawned.
+            self.assertEqual(conn.execute(
+                "SELECT verdict FROM agent_os_inspections WHERE task_id=?", (task_id,)).fetchone()["verdict"],
+                "escalated")
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM telegram_cards WHERE event_key LIKE 'escalation:%'").fetchone()[0], 1)
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM agent_os_orders WHERE work_id LIKE 'test-1%'").fetchone()[0], 1)
+        finally:
+            conn.close()
+
+    def test_revision_loop_carries_depth_forward(self):
+        """The first failure revises once; that revision failing again escalates."""
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        try:
+            telegram.schema(conn)
+            conn.execute("UPDATE agent_os_orders SET phase='review' WHERE task_id=?", (task_id,))
+            conn.execute("""INSERT OR REPLACE INTO agent_os_inspections
+                (task_id,inspector_task_id,verdict,failed,cycles) VALUES (?,?,?,?,1)""",
+                (task_id, "t_inspector_fixture", "fail", "Criterion 1 fails."))
+            telegram.run_revisions(conn, self.state, now=time.time())
+            # First failure: one revision spawned, carrying revision_cycle=1 forward.
+            rev = conn.execute(
+                "SELECT payload,phase FROM agent_os_orders WHERE work_id LIKE 'test-1-rev%'").fetchone()
+            self.assertIsNotNone(rev)
+            self.assertEqual(json.loads(rev["payload"])["problem_or_opportunity"]["revision_cycle"], 1)
+            # The revision reaches review and fails its check too.
+            conn.execute("UPDATE agent_os_orders SET phase='review' WHERE work_id LIKE 'test-1-rev%'")
+            rev_id = conn.execute(
+                "SELECT task_id FROM agent_os_orders WHERE work_id LIKE 'test-1-rev%'").fetchone()["task_id"]
+            conn.execute("""INSERT OR REPLACE INTO agent_os_inspections
+                (task_id,inspector_task_id,verdict,failed,cycles) VALUES (?,?,?,?,1)""",
+                (rev_id, "t_inspector_fixture", "fail", "Criterion 1 still fails."))
+            telegram.run_revisions(conn, self.state, now=time.time())
+            self.assertEqual(conn.execute(
+                "SELECT verdict FROM agent_os_inspections WHERE task_id=?", (rev_id,)).fetchone()["verdict"],
+                "escalated")
+            # Exactly one revision total: the loop did not run away.
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM agent_os_orders WHERE work_id LIKE 'test-1-rev%'").fetchone()[0], 1)
+        finally:
+            conn.close()
+
     def test_inspection_is_not_itself_inspected(self):
         """An inspection reaching review must not spawn another inspection."""
         task = self.claimed()
