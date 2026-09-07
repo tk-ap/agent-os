@@ -19,6 +19,41 @@ messages.
 
 The gateway must be running for the cron tick to fire at all.
 
+## Process layer (three processes, two clocks, one poller)
+
+The workflow's process wiring is saved in the repo at
+`adapters/hermes/fleet/systemd/`, so the inbox can be rebuilt on a new machine
+from the repo alone:
+
+1. **Primary clock + poller — the Hermes cron tick** (`Agent OS fleet dispatch`).
+   Installed by `adapters/hermes/fleet/install.py`. Runs inside the gateway
+   process every minute; dispatches workers and, while the listener heartbeat is
+   stale, polls `getUpdates` itself. When the gateway is down, this clock stops.
+2. **Listener** — `milchik-listener.service`. Holds the Telegram long poll so
+   sent messages are answered in seconds. Writes the heartbeat that makes the
+   tick skip polling. Only one of (1) and (2) polls at a time, enforced by the
+   90-second heartbeat window.
+3. **Fallback clock** — `agent-os-fleet-fallback.timer` +
+   `agent-os-fleet-fallback.service`, driving
+   `adapters/hermes/fleet/fallback_tick.py`. A systemd user timer fires every
+   minute but ticks ONLY when the gateway's own liveness row in
+   `~/.hermes/state.db` is stale (~2.5 missed beats), so the two clocks never
+   double-fire. When Hermes is healthy it is a no-op; when the gateway dies it
+   keeps dispatch and the review inbox moving within one heartbeat window.
+
+Install the units on a new machine:
+
+```bash
+install -Dm644 adapters/hermes/fleet/systemd/*.service \
+  adapters/hermes/fleet/systemd/*.timer -t ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now milchik-listener.service
+systemctl --user enable --now agent-os-fleet-fallback.timer
+```
+
+The unit files carry `Documentation=` back to this file and hardcode
+`/home/tk/Work/agent-os` paths; adjust for a different home or clone location.
+
 ## Private setup
 
 Create the bot through Telegram's BotFather, display name **Milchik**. Its

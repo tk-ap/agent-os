@@ -1,0 +1,7 @@
+[Unit]
+Description=Agent OS fleet fallback tick (only fires when the Hermes gateway is down)
+
+[Service]
+Type=oneshot
+ExecStart=/home/tk/.hermes/hermes-agent/venv/bin/python /home/tk/Work/agent-os/adapters/hermes/fleet/fallback_tick.py
+WorkingDirectory=/home/tk/Work/agent-os
