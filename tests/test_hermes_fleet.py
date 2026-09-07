@@ -82,6 +82,19 @@ class FleetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.enqueue()
 
+    def test_denied_attempt_in_successful_run_is_not_permission(self):
+        # The scoped Bash allowlist means workers routinely attempt a denied
+        # command and then complete with allowed tools; the denial stays in
+        # the evidence record but the run is a success.
+        out = '{"type":"result","is_error":false,"subtype":"success",' \
+              '"permission_denials":[{"tool_name":"Bash"}]}'
+        self.assertEqual(harnesses.classify(0, out, "")[0], "executed")
+
+    def test_denied_attempt_in_failed_run_is_permission(self):
+        out = '{"type":"result","is_error":true,' \
+              '"permission_denials":[{"tool_name":"Bash"}]}'
+        self.assertEqual(harnesses.classify(0, out, "")[0], "permission")
+
     def test_git_work_allows_claude_and_codex(self):
         self.order["required_capabilities"] = ["filesystem", "git"]
         task_id = self.enqueue()

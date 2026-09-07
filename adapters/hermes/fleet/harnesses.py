@@ -42,10 +42,20 @@ def available(harness):
 
 
 def classify(returncode, stdout, stderr):
-    """Only provider error records/stderr can trigger rotation, never generated prose."""
+    """Only provider error records/stderr can trigger rotation, never generated prose.
+
+    A denied tool attempt inside an otherwise successful run is NOT a
+    permission failure: under the scoped Bash allowlist a worker routinely
+    attempts a non-git command, gets denied, and continues with allowed tools
+    (the denial is recorded in permission_denials for the evidence trail).
+    A completed run (is_error False, subtype success) classifies as executed
+    even when it carries denied attempts; denied is fatal only when the run
+    itself failed or errored.
+    """
     errors = []
-    denied = False
+    denied_failed = False
     retry_after = None
+    completed = False
     for line in stdout.splitlines():
         try:
             event = json.loads(line)
@@ -53,14 +63,20 @@ def classify(returncode, stdout, stderr):
             continue
         if not isinstance(event, dict):
             continue
-        denied |= bool(event.get("permission_denials"))
+        if event.get("permission_denials") and (
+            event.get("is_error") or event.get("type") in {"error", "turn.failed"}
+        ):
+            denied_failed = True
+        if event.get("type") == "result" and not event.get("is_error"):
+            completed = True
         if event.get("type") in {"error", "turn.failed"} or event.get("is_error"):
             errors.append(json.dumps(event))
             delay = event.get("retry_after")
             if isinstance(delay, (int, float)) and not isinstance(delay, bool):
                 retry_after = min(86400, max(60, delay))
     error = "\n".join(errors + ([stderr] if returncode else [])).lower()
-    if denied or re.search(r"permission.denied|approval.required|not authorized|sandbox.*denied", error):
+    if denied_failed or (not completed and re.search(
+            r"permission.denied|approval.required|not authorized|sandbox.*denied", error)):
         return "permission", None
     if re.search(r"authentication|unauthorized|invalid.api.key|login required|not logged in", error):
         return "authentication", None
