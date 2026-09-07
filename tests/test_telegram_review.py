@@ -205,6 +205,16 @@ class TelegramReviewTests(unittest.TestCase):
         self.assertEqual([n for n, _l, _d in telegram.publish_choices(commit_only)], ["commit"])
         self.assertEqual([n for n, _l, _d in telegram.publish_choices({"workspace": "/tmp"})], ["accept"])
 
+    def test_batch_publish_refuses_if_the_branch_moved(self):
+        """The branch shown on the card must be the branch that gets pushed."""
+        entry = {"label": "X", "path": str(self.workspace), "branch": "a-branch-that-is-not-checked-out",
+                 "commits": 3}
+        subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
+        with self.assertRaises(ValueError) as caught:
+            telegram.publish_branch(entry)
+        self.assertIn("branch changed", str(caught.exception))
+        self.assertIn("nothing published", str(caught.exception))
+
     def test_review_deduplication(self):
         conn,task,config,query = self.card()
         try:

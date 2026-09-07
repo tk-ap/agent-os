@@ -123,6 +123,20 @@ pushing an unreviewed branch would put something live nobody looked at — and i
 never forces. All refusals happen before anything is committed, so a refused
 publish leaves no commit behind.
 
+## Publishing a batch
+
+Send `/publish` in the private chat. Milchik lists every project with commits
+that are not yet pushed — branch, how many commits and files, the first few
+subjects, and the URL each one makes live — with a button per project.
+
+This is how deployment spend stays deliberate. Every push triggers a build, so
+publishing one approval at a time costs a deployment per decision. `Approve &
+save` commits without pushing, approvals accumulate on the branch, and one
+`/publish` press sends them together as a single build.
+
+It pushes the branch it showed you. If the branch moved between the card and the
+press, it refuses and publishes nothing. It never forces.
+
 ## Asking for status
 
 Send `/status` in the private chat or the monitor group. Milchik replies with a

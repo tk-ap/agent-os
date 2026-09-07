@@ -430,6 +430,55 @@ REPO_SLUG = {
 }
 
 
+def publishable():
+    """What is committed locally and not yet published, per project.
+
+    Every push to a branch triggers a build, so publishing one approval at a
+    time spends a deployment per decision. This is the batch view: approvals
+    accumulate as commits, and one press sends them together.
+    """
+    out = []
+    for label, directory, _slug in PROJECTS:
+        path = ROOT.parent / directory
+        if not (path / ".git").exists():
+            continue
+        branch = (_run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=path) or "").strip()
+        if not branch or branch == "HEAD":
+            continue
+        upstream = _run(["git", "rev-parse", "--abbrev-ref", "@{u}"], cwd=path)
+        if not upstream:
+            continue                      # No upstream: nothing to publish to yet.
+        ahead = _run(["git", "rev-list", "--count", "@{u}..HEAD"], cwd=path)
+        count = int(ahead.strip()) if ahead and ahead.strip().isdigit() else 0
+        if not count:
+            continue
+        files = _run(["git", "diff", "--name-only", "@{u}..HEAD"], cwd=path) or ""
+        subjects = _run(["git", "log", "--format=%s", "@{u}..HEAD"], cwd=path) or ""
+        out.append({
+            "key": directory,
+            "label": label,
+            "path": str(path),
+            "branch": branch,
+            "commits": count,
+            "files": len([f for f in files.splitlines() if f.strip()]),
+            "subjects": [s for s in subjects.splitlines() if s.strip()][:3],
+            "url": PRODUCTION_URL.get({"ashwood": "ashwood", "ALVIRA": "alvira-meos"}.get(directory, "")),
+        })
+    return out
+
+
+def publish_branch(entry):
+    """Push one project's current branch. Never forced, never a different branch."""
+    workspace = Path(entry["path"])
+    current = (_run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=workspace) or "").strip()
+    if current != entry["branch"]:
+        # The branch moved between showing the card and pressing it.
+        raise ValueError(f"branch changed from {entry['branch']} to {current}; nothing published")
+    git(workspace, "push", "origin", f"{current}:{current}")
+    revision = git(workspace, "rev-parse", "--short", "HEAD").decode().strip()
+    return f"{entry['label']}: pushed {entry['commits']} commits to {current} ({revision})."
+
+
 def links_for(order):
     """Live links for a card: PR, preview deployment, production.
 
@@ -1295,7 +1344,31 @@ def deliver(conn, config, api):
 
 def handle_update(conn, config, api, update):
     """Act on one Telegram update. Shared by the minute tick and the listener."""
-    if "callback_query" in update:
+    if "callback_query" in update and str(update["callback_query"].get("data","")).startswith("pub:"):
+        # Batch publish. Separate from decide(), which answers a review card: this
+        # approves no work, it only sends already-approved commits out.
+        query = update["callback_query"]
+        if (query.get("from",{}).get("id") != config["user_id"]
+                or query.get("message",{}).get("chat",{}).get("id") != config["chat_id"]):
+            answer = "Not authorized"
+        else:
+            key = str(query.get("data","")).split(":",1)[1]
+            entry = next((e for e in publishable() if e["key"] == key), None)
+            if not entry:
+                answer = "Nothing left to publish there."
+            else:
+                try:
+                    answer = publish_branch(entry)
+                except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                    answer = f"Not published: {short(str(exc), 150)}"
+        try:
+            api.call("answerCallbackQuery", callback_query_id=query["id"],
+                     text=answer[:190], show_alert=True)
+            api.call("sendMessage", chat_id=config["chat_id"], text=answer,
+                     link_preview_options={"is_disabled": True})
+        except TelegramError:
+            pass
+    elif "callback_query" in update:
         query = update["callback_query"]
         response = decide(conn,config,query)
         try:
@@ -1395,6 +1468,33 @@ def handle_update(conn, config, api, update):
                     "Not recorded. Prefix a directive with > or /do — "
                     "plain messages here are not instructions."),
                     link_preview_options={"is_disabled":True})
+            except TelegramError:
+                pass
+        if body == "/publish" and sender == config["user_id"] and chat == config["chat_id"]:
+            ready = publishable()
+            if not ready:
+                reply, keyboard = "Nothing waiting to be published.", None
+            else:
+                lines = ["**Ready to publish** — one push each, one build each.", ""]
+                for entry in ready:
+                    lines.append(f"{entry['label']} · `{entry['branch']}`")
+                    lines.append(f"  {entry['commits']} commits · {entry['files']} files")
+                    for subject in entry["subjects"]:
+                        lines.append(f"  · {short(subject, 62)}")
+                    if entry["url"]:
+                        lines.append(f"  __goes live at {entry['url']}__")
+                    lines.append("")
+                lines.append("__Nothing is published until you press one.__")
+                reply = "\n".join(lines)
+                keyboard = {"inline_keyboard": [
+                    [{"text": f"Publish {e['label']} ({e['commits']})",
+                      "callback_data": f"pub:{e['key']}"}] for e in ready]}
+            try:
+                payload = {"chat_id": chat, "text": reply,
+                           "link_preview_options": {"is_disabled": True}}
+                if keyboard:
+                    payload["reply_markup"] = keyboard
+                api.call("sendMessage", **payload)
             except TelegramError:
                 pass
         if body == "/next" and sender == config["user_id"] and chat == config["chat_id"]:
