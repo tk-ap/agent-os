@@ -5,14 +5,23 @@ runtime remains the authority/state implementation underneath it.
 """
 import sys as _sys
 
-from . import telegram_human as telegram
+from . import telegram_human
 from . import telegram_human_readonly as _telegram_human_readonly
 from . import telegram_human_monitor as _telegram_human_monitor
 from . import telegram_agent_directory as _telegram_agent_directory
 
 # Explain is presentation only: install a renderer that performs reads without
-# persisting routing proposals or changing any task/approval state.
-_telegram_human_readonly.install(telegram)
+# persisting routing proposals or changing any task/approval state. The
+# install writes into the wrapper module's own dict, which is exactly where
+# the patched handle_update resolves `_technical_details` from.
+_telegram_human_readonly.install(telegram_human)
+
+# The human layer installs itself INTO the base runtime module in place
+# (base.collect_reviews/deliver/decide/handle_update are the human-first
+# versions after import). Expose that single module as `telegram`: every
+# attribute read and write — including test isolation patches of ROOT/CONFIG —
+# hits the one dict the runtime functions actually read, with no stale copies.
+telegram = telegram_human.base
 
 # Monitor-channel fleet/contribution events use the same human-first contract.
 # This changes presentation only; approval and execution semantics stay in the
@@ -27,5 +36,5 @@ _telegram_agent_directory.install(telegram)
 
 # Any existing `from adapters.hermes.fleet import telegram` or
 # `from adapters.hermes.fleet.telegram import ...` call now receives the
-# presentation adapter without changing scheduler/service entrypoints.
+# patched runtime without changing scheduler/service entrypoints.
 _sys.modules[__name__ + ".telegram"] = telegram
