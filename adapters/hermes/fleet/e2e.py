@@ -5,8 +5,11 @@ harness executables — no network, no model calls, no live board. Verifies the
 full loop the proposal demands:
 
   directive message -> capture -> routing order + Hermes Kanban board row
-  -> fixture harness worker -> review -> W Dog inspection (fixture)
-  -> verdict -> review card delivered -> callback accept -> board done
+  -> routing worker proposes -> W Dog inspection (fixture) -> verdict
+  -> assignment auto-enqueues the directed work (no routing accept card)
+  -> work worker parks at the protected boundary -> scoped grant approval
+  -> resume -> review -> W Dog inspection -> review card -> callback accept
+  -> board done
 
 CLI:  python .../fleet_cli.py telegram e2e
 Tests: tests/test_telegram_e2e.py
@@ -22,10 +25,11 @@ import time
 
 from adapters.hermes.fleet import bridge, telegram
 
-STAGES = ["capture", "board_row", "approval_parked", "approval_card",
-          "grant_resumed", "worker_review", "inspection_verdict",
-          "card_delivered", "decision_done", "work_enqueued",
-          "directive_closed", "monitor_channel"]
+STAGES = ["capture", "board_row", "routing_review", "inspection_verdict",
+          "routing_auto_enqueued", "no_routing_card", "work_enqueued",
+          "directive_closed", "work_approval_parked", "work_approval_card",
+          "work_grant_resumed", "work_review", "work_card_delivered",
+          "decision_done", "monitor_channel"]
 
 # One fixture serves both the producer and the inspector: the prompt tells it
 # which mode it is in. It writes the checkpoint the worker consumes and exits
@@ -47,7 +51,8 @@ if inspection:
     checkpoint = {"summary": summary, "completed": ["fixture step"], "remaining": [],
                   "artifacts": [], "verification": ["fixture check"],
                   "status": "ready_for_review"}
-elif "TK-approved scoped authority" in prompt:
+elif "Propose only. Do not start the directed work." in prompt:
+    # Routing mode (resumed under grant): emit the structured proposal.
     summary = "Proposed one owning agent, a priority level, and a lane."
     checkpoint = {"summary": summary, "completed": ["fixture step"], "remaining": [],
                   "artifacts": [], "verification": ["fixture check"],
@@ -55,6 +60,12 @@ elif "TK-approved scoped authority" in prompt:
                   "proposal": {"owning_agent": "eugene", "priority": "p1",
                                "lane": "ecosystem", "product": "agent-os-workforce",
                                "capabilities": ["filesystem"]}}
+elif "TK-approved scoped authority" in prompt:
+    # Work mode (resumed under grant): complete the directed work.
+    summary = "Completed the directed work under the scoped grant."
+    checkpoint = {"summary": summary, "completed": ["fixture step"], "remaining": [],
+                  "artifacts": [], "verification": ["fixture check"],
+                  "status": "ready_for_review"}
 else:
     # First run parks at a protected boundary: the harness needs authority it
     # does not have, so it requests a scoped grant instead of acting.
@@ -193,57 +204,18 @@ def run_offline_e2e(root=None, user_id=900000001):
         finally:
             conn.close()
 
-        # 2. Worker parks at the protected boundary (phase waiting_approval).
+        # 2. Routing worker completes directly (proposes, no park); reaches review.
         if producer_task:
             bridge.tick(state)
             conn = bridge.connect(state)
             try:
-                task = _wait_status(conn, producer_task, "blocked")
-                row = bridge.order_row(conn, producer_task)
-                results["approval_parked"] = bool(
-                    task and row and row["phase"] == "waiting_approval")
-            finally:
-                conn.close()
-            # 3. Approval card created and delivered to the private chat.
-            telegram.tick(state, config_path, api)
-            conn = bridge.connect(state)
-            try:
-                card = conn.execute(
-                    "SELECT * FROM telegram_cards WHERE task_id=?", (producer_task,)).fetchone()
-                results["approval_card"] = bool(
-                    card and card["delivery"] == "sent" and card["message_id"] and card["scope"])
-                card_id = card["id"] if card else None
-                message_id = card["message_id"] if card else None
-            finally:
-                conn.close()
-            # 4. Operator approves the scoped grant; the SAME task resumes.
-            if card_id and message_id:
-                api.queue_callback(f"aos:{card_id}:approve", user_id, chat_id, message_id)
-                telegram.tick(state, config_path, api)
-                conn = bridge.connect(state)
-                try:
-                    grant = conn.execute(
-                        "SELECT * FROM agent_os_grants WHERE task_id=?", (producer_task,)).fetchone()
-                    row = bridge.order_row(conn, producer_task)
-                    task = kb.get_task(conn, producer_task)
-                    results["grant_resumed"] = bool(
-                        grant and grant["consumed"] == 0 and row and row["phase"] == "queued"
-                        and task and task.status in {"ready", "running"})
-                finally:
-                    conn.close()
-            # 5. Worker resumes under the grant and reaches review; the grant is
-            # consumed exactly once.
-            bridge.tick(state)
-            conn = bridge.connect(state)
-            try:
                 task = _wait_status(conn, producer_task, "review")
-                grant = conn.execute(
-                    "SELECT * FROM agent_os_grants WHERE task_id=?", (producer_task,)).fetchone()
-                results["worker_review"] = bool(
-                    task and task.status == "review" and grant and grant["consumed"] == 1)
+                row = bridge.order_row(conn, producer_task)
+                results["routing_review"] = bool(
+                    task and task.status == "review" and row and row["phase"] == "review")
             finally:
                 conn.close()
-            # 6. Inspection is enqueued by the telegram tick.
+            # 3. Inspection is enqueued by the telegram tick.
             telegram.tick(state, config_path, api)
             conn = bridge.connect(state)
             try:
@@ -253,7 +225,7 @@ def run_offline_e2e(root=None, user_id=900000001):
                 inspector_task = inspector["inspector_task_id"] if inspector else None
             finally:
                 conn.close()
-            # 7. Inspector worker runs to review; verdict read next tick.
+            # 4. Inspector worker runs to review; verdict read next tick.
             if inspector_task:
                 bridge.tick(state)
                 conn = bridge.connect(state)
@@ -261,46 +233,127 @@ def run_offline_e2e(root=None, user_id=900000001):
                     _wait_status(conn, inspector_task, "review")
                 finally:
                     conn.close()
-            # 8. Verdict consumed, review card created and delivered.
+            # 5. Verdict consumed; no routing card; the assignment auto-enqueues.
             telegram.tick(state, config_path, api)
             conn = bridge.connect(state)
             try:
-                card = conn.execute(
-                    "SELECT * FROM telegram_cards WHERE task_id=? AND event_key LIKE 'task:%'",
-                    (producer_task,)).fetchone()
                 inspection = conn.execute(
-                    "SELECT * FROM agent_os_inspections WHERE task_id=?", (producer_task,)).fetchone()
+                    "SELECT * FROM agent_os_inspections WHERE task_id=?",
+                    (producer_task,)).fetchone()
                 results["inspection_verdict"] = bool(
                     inspection and inspection["verdict"] == "pass")
-                results["card_delivered"] = bool(
-                    card and card["delivery"] == "sent" and card["message_id"])
-                card_id = card["id"] if card else None
-                message_id = card["message_id"] if card else None
+                routing_row = bridge.order_row(conn, producer_task)
+                routing_board = kb.get_task(conn, producer_task)
+                results["routing_auto_enqueued"] = bool(
+                    routing_row and routing_row["phase"] == "accepted"
+                    and routing_board and routing_board.status == "done")
+                # Routing assignments must NOT become review cards.
+                routing_card = conn.execute(
+                    "SELECT * FROM telegram_cards WHERE task_id=? AND event_key LIKE 'task:%'",
+                    (producer_task,)).fetchone()
+                results["no_routing_card"] = routing_card is None
+                work = conn.execute(
+                    "SELECT * FROM agent_os_orders WHERE work_id LIKE 'directive-%-work'").fetchone()
+                results["work_enqueued"] = bool(
+                    work and kb.get_task(conn, work["task_id"]) is not None
+                    and work["owning_agent"] == "eugene")
+                directive = conn.execute(
+                    "SELECT status FROM telegram_directives ORDER BY id DESC").fetchone()
+                if directive:
+                    results["directive_closed"] = directive["status"] == "closed"
+                work_task = work["task_id"] if work else None
             finally:
                 conn.close()
-            # 9. Callback accept -> canonical completion + directed work enqueued.
-            if card_id and message_id:
-                api.queue_callback(f"aos:{card_id}:accept", user_id, chat_id, message_id)
+            # 9-12. The directed work runs its own gate: park, approve, resume.
+            if work_task:
+                bridge.tick(state)
+                conn = bridge.connect(state)
+                try:
+                    task = _wait_status(conn, work_task, "blocked")
+                    row = bridge.order_row(conn, work_task)
+                    results["work_approval_parked"] = bool(
+                        task and row and row["phase"] == "waiting_approval")
+                finally:
+                    conn.close()
                 telegram.tick(state, config_path, api)
                 conn = bridge.connect(state)
                 try:
-                    task = kb.get_task(conn, producer_task)
-                    row = bridge.order_row(conn, producer_task)
-                    results["decision_done"] = bool(
-                        task and task.status == "done" and row and row["phase"] == "accepted")
-                    # Accepting the routing proposal must have enqueued the
-                    # directed work, owned by the proposed agent.
-                    work = conn.execute(
-                        "SELECT * FROM agent_os_orders WHERE work_id LIKE 'directive-%-work'").fetchone()
-                    results["work_enqueued"] = bool(
-                        work and kb.get_task(conn, work["task_id"]) is not None
-                        and work["owning_agent"] == "eugene")
-                    directive = conn.execute(
-                        "SELECT status FROM telegram_directives ORDER BY id DESC").fetchone()
-                    if directive:
-                        results["directive_closed"] = directive["status"] == "closed"
+                    card = conn.execute(
+                        "SELECT * FROM telegram_cards WHERE task_id=?", (work_task,)).fetchone()
+                    results["work_approval_card"] = bool(
+                        card and card["delivery"] == "sent" and card["message_id"] and card["scope"])
+                    work_card_id = card["id"] if card else None
+                    work_message_id = card["message_id"] if card else None
                 finally:
                     conn.close()
+                if work_card_id and work_message_id:
+                    api.queue_callback(f"aos:{work_card_id}:approve",
+                                       user_id, chat_id, work_message_id)
+                    telegram.tick(state, config_path, api)
+                    conn = bridge.connect(state)
+                    try:
+                        grant = conn.execute(
+                            "SELECT * FROM agent_os_grants WHERE task_id=?",
+                            (work_task,)).fetchone()
+                        row = bridge.order_row(conn, work_task)
+                        results["work_grant_resumed"] = bool(
+                            grant and grant["consumed"] == 0 and row and row["phase"] == "queued")
+                    finally:
+                        conn.close()
+                # 13-14. Resumed work reaches review; grant consumed exactly once.
+                bridge.tick(state)
+                conn = bridge.connect(state)
+                try:
+                    task = _wait_status(conn, work_task, "review")
+                    grant = conn.execute(
+                        "SELECT * FROM agent_os_grants WHERE task_id=?",
+                        (work_task,)).fetchone()
+                    results["work_review"] = bool(
+                        task and task.status == "review" and grant and grant["consumed"] == 1)
+                finally:
+                    conn.close()
+                # 15. Inspection + verdict + the work's own review card.
+                telegram.tick(state, config_path, api)
+                conn = bridge.connect(state)
+                try:
+                    inspector = conn.execute(
+                        "SELECT inspector_task_id FROM agent_os_inspections WHERE task_id=?",
+                        (work_task,)).fetchone()
+                    work_inspector = inspector["inspector_task_id"] if inspector else None
+                finally:
+                    conn.close()
+                if work_inspector:
+                    bridge.tick(state)
+                    conn = bridge.connect(state)
+                    try:
+                        _wait_status(conn, work_inspector, "review")
+                    finally:
+                        conn.close()
+                telegram.tick(state, config_path, api)
+                conn = bridge.connect(state)
+                try:
+                    card = conn.execute(
+                        "SELECT * FROM telegram_cards WHERE task_id=? AND event_key LIKE 'task:%'",
+                        (work_task,)).fetchone()
+                    results["work_card_delivered"] = bool(
+                        card and card["delivery"] == "sent" and card["message_id"])
+                    work_card_id2 = card["id"] if card else None
+                    work_message_id2 = card["message_id"] if card else None
+                finally:
+                    conn.close()
+                # 16. Accept the WORK — the approval TK keeps.
+                if work_card_id2 and work_message_id2:
+                    api.queue_callback(f"aos:{work_card_id2}:accept",
+                                       user_id, chat_id, work_message_id2)
+                    telegram.tick(state, config_path, api)
+                    conn = bridge.connect(state)
+                    try:
+                        task = kb.get_task(conn, work_task)
+                        row = bridge.order_row(conn, work_task)
+                        results["decision_done"] = bool(
+                            task and task.status == "done" and row and row["phase"] == "accepted")
+                    finally:
+                        conn.close()
         # 7. Monitor channel got read-only fleet lines, never approval buttons.
         monitor_messages = [k for _m, k in api.calls
                             if k.get("chat_id") == monitor_id]

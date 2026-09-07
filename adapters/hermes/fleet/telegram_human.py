@@ -116,6 +116,11 @@ def collect_reviews(conn, state):
             pass
 
         proposal = _routing_proposal(conn, row, checkpoint)
+        # Routing assignments auto-enqueue when they pass inspection
+        # (auto_enqueue_routed_work); they never become review cards.
+        # TK approves the work itself, not who does it.
+        if row["work_id"].startswith("directive-") and row["work_id"].endswith("-routing"):
+            continue
         verdict = inspection["verdict"]
         if verdict == "pass" and inspection["snapshot"] and stamp and inspection["snapshot"] != stamp:
             verdict = "stale"

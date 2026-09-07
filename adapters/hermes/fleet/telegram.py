@@ -590,13 +590,17 @@ def collect_reviews(conn, state):
         except ValueError:
             pass
         # A routing task's structured proposal is what enqueues the directed
-        # work when TK accepts. Store it while the checkpoint is in hand so the
-        # accept path never re-parses prose.
+        # work. Store it while the checkpoint is in hand so the auto-enqueue
+        # path never re-parses prose.
         if row["work_id"].startswith("directive-") and row["work_id"].endswith("-routing"):
             proposal = checkpoint.get("proposal")
             if isinstance(proposal, dict):
                 conn.execute("INSERT OR REPLACE INTO routing_proposals(task_id,work_id,proposal) VALUES (?,?,?)",
                              (task.id, row["work_id"], json.dumps(proposal)))
+            # Operator decision: TK approves the work, not who does it.
+            # Routing assignments auto-enqueue (auto_enqueue_routed_work);
+            # they never become review cards.
+            continue
         # Written for TK, who is not reading this as an engineer. Plain words,
         # the decision first, and the limits stated rather than implied.
         tries = row["attempts"]
@@ -1041,6 +1045,73 @@ def collect_fleet(conn):
         conn.execute("INSERT OR IGNORE INTO telegram_cards(id,event_key,expires,message,channel) VALUES (?,?,?,?,?)",
                      (secrets.token_urlsafe(12), key, time.time()+86400, "\n".join(lines), "monitor"))
     conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('fleet_watermark',?)", (str(events[-1]["id"]),))
+
+
+def auto_enqueue_routed_work(conn, state):
+    """Auto-enqueue directed work when routing passes inspection.
+
+    Operator decision (2026-09-07): TK approves the actual work, not which
+    agent is assigned it. A routing task that passes independent inspection
+    enqueues its proposal's directed work with no accept card. Fail closed:
+    a non-passing verdict or an invalid proposal fails the directive with a
+    Problem card — nothing is enqueued from an untrusted assignment.
+    """
+    from hermes_cli import kanban_db as kb
+    for row in conn.execute("SELECT * FROM agent_os_orders WHERE phase='review'").fetchall():
+        work_id = row["work_id"]
+        if not (work_id.startswith("directive-") and work_id.endswith("-routing")):
+            continue
+        task = kb.get_task(conn, row["task_id"])
+        if not task or task.status != "review":
+            continue
+        inspection = conn.execute("SELECT * FROM agent_os_inspections WHERE task_id=?",
+                                  (row["task_id"],)).fetchone()
+        if inspection is None or inspection["verdict"] is None:
+            continue  # inspection not run yet; wait for it
+        directive_id = work_id.split("-", 1)[1].rsplit("-routing", 1)[0]
+        if inspection["verdict"] != "pass":
+            conn.execute("UPDATE telegram_directives SET status='route_failed' WHERE id=?",
+                         (directive_id,))
+            conn.execute("UPDATE agent_os_orders SET phase='blocked' WHERE task_id=?",
+                         (row["task_id"],))
+            kb.block_task(conn, row["task_id"],
+                          reason=f"Routing inspection {inspection['verdict']}: no auto-enqueue")
+            conn.execute("""INSERT OR IGNORE INTO telegram_cards
+                (id,event_key,task_id,snapshot,expires,message) VALUES (?,?,?,?,?,?)""",
+                (secrets.token_urlsafe(12), f"route-failed:{row['task_id']}", row["task_id"],
+                 None, time.time()+86400,
+                 f"**Problem — a work assignment could not be trusted**\n\n"
+                 f"Directive #{directive_id} was not started: the independent check on the "
+                 f"assignment came back **{inspection['verdict']}**, so nothing was enqueued. "
+                 f"I did not guess an owner."))
+            continue
+        new_task, agent, problem = enqueue_directed_work(conn, state, row)
+        if new_task is None:
+            conn.execute("UPDATE telegram_directives SET status='route_failed' WHERE id=?",
+                         (directive_id,))
+            conn.execute("UPDATE agent_os_orders SET phase='blocked' WHERE task_id=?",
+                         (row["task_id"],))
+            kb.block_task(conn, row["task_id"],
+                          reason=f"Directed work refused: {problem}")
+            conn.execute("""INSERT OR IGNORE INTO telegram_cards
+                (id,event_key,task_id,snapshot,expires,message) VALUES (?,?,?,?,?,?)""",
+                (secrets.token_urlsafe(12), f"route-refused:{row['task_id']}", row["task_id"],
+                 None, time.time()+86400,
+                 f"**Problem — directive #{directive_id} could not be assigned**\n\n{problem}"))
+            continue
+        conn.execute("UPDATE agent_os_orders SET phase='accepted' WHERE task_id=?",
+                     (row["task_id"],))
+        kb.complete_task(conn, row["task_id"],
+                         summary=f"Routed automatically to {agent}",
+                         result="routed")
+        conn.execute("""INSERT OR IGNORE INTO telegram_cards
+            (id,event_key,task_id,snapshot,expires,message,channel) VALUES (?,?,?,?,?,?,?)""",
+            (secrets.token_urlsafe(12), f"auto-routed:{row['task_id']}", row["task_id"], None,
+             time.time()+604800,
+             f"**FYI — work assigned to {str(agent).replace('-', ' ').title()}**\n\n"
+             f"Directive #{directive_id} passed its independent check, so the work is queued "
+             f"under the normal review process. You will be asked to approve the work itself, "
+             f"not the assignment.", "monitor"))
 
 
 def route_directives(conn, state, now=None):
@@ -2158,6 +2229,7 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
             read_inspection_verdicts(conn,state)
             run_revisions(conn,state)
             collect_reviews(conn,state)
+            auto_enqueue_routed_work(conn,state)
             collect_approval_requests(conn,state)
             if config["basis"] == "commit":
                 collect_commits(conn,config.get("repositories",{}))
