@@ -47,8 +47,10 @@ This keeps organizational roles and product truth stable while models, tools, ho
 - `policies/AUTONOMY_POLICY.md` — autonomous action, control-check, and human-escalation rules.
 - `policies/HANDOFF_POLICY.md` — agent/cross-product ownership transitions, bounded producer/inspector loops, and recurring-work handoffs.
 - `policies/CROSS_MARKET_POLICY.md` — value-first rules for adjacent-product recommendations.
+- `routines/` — declarative recurring-work contracts for governed repeated execution; defining a routine does not schedule or authorize it.
 - `adapters/` — environment-specific and product-repository integration contracts.
 - `docs/CONTROL_PLANE_CHARTER.md` — target architecture, object model, boundaries, and staged migration plan.
+- `docs/evidence/routines/` — per-run evidence records for the routines in `routines/`, kept separate from security acceptance evidence.
 
 ## Portable Contracts
 

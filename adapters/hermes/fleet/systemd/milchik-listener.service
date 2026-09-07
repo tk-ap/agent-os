@@ -1,0 +1,17 @@
+[Unit]
+Description=Milchik Telegram listener (Agent OS)
+Documentation=file:///home/tk/Work/agent-os/adapters/hermes/fleet/TELEGRAM.md
+After=hermes-gateway.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/tk/Work/agent-os
+ExecStart=/usr/bin/python3 /home/tk/Work/agent-os/adapters/hermes/fleet_cli.py telegram listen
+# Must exit rather than hang: the minute tick only takes polling back once this
+# process stops heartbeating.
+Restart=always
+RestartSec=5
+WatchdogSec=0
+
+[Install]
+WantedBy=default.target

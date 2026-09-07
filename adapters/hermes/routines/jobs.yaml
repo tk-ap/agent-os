@@ -1,0 +1,106 @@
+version: 0.1.0
+adapter: hermes
+layer: scheduler-binding
+mode: declarative-not-applied
+
+# Declarative Hermes cron definitions for the routines in routines/.
+# This file is data. Applying it is a separate, human action — see apply.sh.
+# A schedule is not authority: each job executes under its routine contract
+# and task envelope, which this file may reference but never widen.
+
+defaults:
+  workdir: /home/tk/Work
+  harness: claude-code            # cost projections in routines/COST_PROJECTIONS.md assume this
+  gateway_required: true          # builtin ticker runs inside hermes-gateway.service
+  on_missing_gateway: jobs-do-not-fire-silently
+
+jobs:
+
+  - id: agent-os-discoverability-audit
+    status: ready-to-apply
+    routine: routines/discoverability-audit.md
+    task_envelope: routines/envelopes/env-discoverability-audit.md
+    schedule: "weekly"
+    monitor_script: monitors/discoverability-fingerprint.sh
+    monitor_semantics: agent-runs-only-on-output-change
+    prompt_ref: prompts/discoverability-audit.md
+    side_effect: draft-pull-request-only
+    authority_class: AUTONOMOUS+AUDIT
+    caps:
+      per_run_usd: 5.00
+      per_month_usd: 30.00
+      url_fetches_per_run: 60
+      input_tokens: 500000
+      output_tokens: 30000
+      wall_clock_minutes: 20
+    first_runs:
+      count: 3
+      mode: findings-only-no-diff
+    evidence: docs/evidence/routines/discoverability-audit/
+
+  - id: agent-os-ashwood-build-journal
+    status: blocked
+    blocked_on: >
+      Trigger source does not exist. runtime/evidence.py does not persist a
+      queryable evidence ledger and has no visibility field, so no event is
+      classified public-candidate. See routines/ashwood-build-journal.md §3
+      for the two options; option 2 (commit-derived candidates) would make
+      this job applicable without building the ledger.
+    routine: routines/ashwood-build-journal.md
+    task_envelope: routines/envelopes/env-ashwood-build-journal.md
+    schedule: "weekly"
+    monitor_script: monitors/journal-evidence-watermark.sh   # not written — depends on the decision above
+    prompt_ref: prompts/ashwood-build-journal.md             # not written
+    side_effect: public-page-commit
+    authority_class: scoped-publish
+    caps:
+      per_run_usd: 6.00
+      per_month_usd: 25.00
+      input_tokens: 400000
+      output_tokens: 40000
+      wall_clock_minutes: 15
+    first_runs:
+      count: 3
+      mode: pull-request-not-commit
+    evidence: docs/evidence/routines/ashwood-build-journal/
+
+  - id: agent-os-ashwood-dispatch
+    status: blocked
+    blocked_on: >
+      No LEARNING record store exists and there is no interim fallback. A
+      LEARNING record is a judgment that a belief changed after an experiment;
+      inferring one from repository activity is the fabrication the routine's
+      validation rules forbid. See routines/ashwood-dispatch.md §3.
+    routine: routines/ashwood-dispatch.md
+    task_envelope: routines/envelopes/env-ashwood-dispatch.md
+    schedule: event-driven-no-calendar-cadence
+    minimum_spacing_days: 14
+    side_effect: public-page-commit-plus-recorded-handoff
+    authority_class: scoped-publish
+    caps:
+      per_run_usd: 8.00
+      per_month_usd: 25.00
+      input_tokens: 600000
+      output_tokens: 60000
+      wall_clock_minutes: 20
+    first_runs:
+      count: 3
+      mode: pull-request-not-commit
+    evidence: docs/evidence/routines/ashwood-dispatch/
+
+portfolio_breaker:
+  monthly_usd: 75.00
+  action: suspend-all-routines
+  note: >
+    Aggregate across all routines. Trips even when every individual routine is
+    inside its own cap. Enforcement has no implementation on this host yet —
+    see limitations below.
+
+limitations:
+  - Hermes cron enforces schedules, not dollar caps. The caps above are contract
+    terms that a run must observe; nothing in this adapter measures or enforces
+    them today. Until a run records measured cost in its evidence file, the caps
+    are checked by reading those files, not automatically.
+  - No notification channel exists on this host. Mr. Milchik is unconfigured, so
+    a suspension or cap breach is discovered by inspection, not delivery.
+  - The builtin ticker only fires while hermes-gateway.service is running.
