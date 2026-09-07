@@ -90,6 +90,22 @@ class FleetTests(unittest.TestCase):
               '"permission_denials":[{"tool_name":"Bash"}]}'
         self.assertEqual(harnesses.classify(0, out, "")[0], "executed")
 
+    def test_board_rows_have_human_titles(self):
+        self.order["problem_or_opportunity"] = {
+            "statement": "Directed work from an accepted routing proposal.",
+            "directive": "Ship the ALVIRA sitemap and robots fix to production.",
+        }
+        self.order["owning_product"] = "alvira-meos"
+        self.order["owning_agent"] = "eugene"
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        task = kb.get_task(conn, task_id)
+        self.assertIn("alvira-meos", task.title)
+        self.assertIn("Ship the ALVIRA sitemap", task.title)
+        self.assertIn("eugene", task.title)
+        self.assertNotIn(task_id, task.title)
+        conn.close()
+
     def test_denied_attempt_in_failed_run_is_permission(self):
         out = '{"type":"result","is_error":true,' \
               '"permission_denials":[{"tool_name":"Bash"}]}'
