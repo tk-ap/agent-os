@@ -105,6 +105,12 @@ def schema(conn):
             id INTEGER PRIMARY KEY, ts REAL NOT NULL, text TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'captured', task_id TEXT
         );
+        CREATE TABLE IF NOT EXISTS backlog_board_map (
+            work_id TEXT PRIMARY KEY, task_id TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS routing_proposals (
+            task_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, proposal TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS telegram_signals (
             id INTEGER PRIMARY KEY, ts REAL NOT NULL, scope TEXT NOT NULL,
             polarity TEXT NOT NULL, text TEXT NOT NULL, reported INTEGER NOT NULL DEFAULT 0
@@ -121,7 +127,8 @@ def migrate(conn):
     install time. Each entry is idempotent and safe on a fresh database.
     """
     additions = {
-        "telegram_cards": {"channel": "TEXT NOT NULL DEFAULT 'private'", "feedback": "TEXT"},
+        "telegram_cards": {"channel": "TEXT NOT NULL DEFAULT 'private'", "feedback": "TEXT",
+                           "scope": "TEXT"},
         # Local attribution. The portable contract declares owning_agent; this is
         # where the runtime reads it without re-parsing the payload. NULL is
         # meaningful: unattributed work is a workforce coverage gap, not an error.
@@ -129,6 +136,14 @@ def migrate(conn):
         # A verdict is only about the files it was given. Without the snapshot it
         # was formed against, a later change silently inherits an old approval.
         "agent_os_inspections": {"snapshot": "TEXT"},
+        # A directive started from the backlog via /next carries the backlog
+        # work_id so the routed order can be stamped with board provenance.
+        "telegram_directives": {"backlog_work_id": "TEXT"},
+        # Execution-context guardrail: governed_execution by default,
+        # verification for inspections, human_exploration/consultation never
+        # enqueued (they live in active_workspaces, not orders).
+        "agent_os_orders": {"owning_agent": "TEXT",
+                            "execution_mode": "TEXT NOT NULL DEFAULT 'governed_execution'"},
     }
     for table, columns in additions.items():
         present = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
@@ -299,6 +314,7 @@ def request_inspection(conn, state, now=None):
                 "verdict_format": "Begin your summary with a line reading exactly 'VERDICT: PASS' or "
                                   "'VERDICT: FAIL', then the per-criterion detail. This line is read "
                                   "by machine; prose around it is read by people.",
+                "execution_mode": "verification",
             },
             "acceptance_criteria": [
                 "Its summary's FIRST LINE is exactly 'VERDICT: PASS' or 'VERDICT: FAIL' and nothing else",
@@ -573,6 +589,14 @@ def collect_reviews(conn, state):
             checkpoint = json.loads(record.get("checkpoint_text", "{}"))
         except ValueError:
             pass
+        # A routing task's structured proposal is what enqueues the directed
+        # work when TK accepts. Store it while the checkpoint is in hand so the
+        # accept path never re-parses prose.
+        if row["work_id"].startswith("directive-") and row["work_id"].endswith("-routing"):
+            proposal = checkpoint.get("proposal")
+            if isinstance(proposal, dict):
+                conn.execute("INSERT OR REPLACE INTO routing_proposals(task_id,work_id,proposal) VALUES (?,?,?)",
+                             (task.id, row["work_id"], json.dumps(proposal)))
         # Written for TK, who is not reading this as an engineer. Plain words,
         # the decision first, and the limits stated rather than implied.
         tries = row["attempts"]
@@ -627,6 +651,257 @@ def collect_reviews(conn, state):
         conn.execute("""INSERT OR IGNORE INTO telegram_cards
             (id,event_key,task_id,snapshot,expires,message) VALUES (?,?,?,?,?,?)""",
             (secrets.token_urlsafe(12), key, task.id, stamp, time.time()+86400, text))
+
+
+def collect_approval_requests(conn, state):
+    """Surface parked approval gates as cards: approve or deny, same task resumes.
+
+    A worker hit a protected boundary and parked (phase waiting_approval). TK
+    approves a scoped, expiring grant — the SAME task resumes with that scope
+    added and nothing else — or denies, which terminates the task with the
+    denial in the record. Cards are private-chat only; the monitor group never
+    gets an approval button.
+    """
+    GRANT_TTL = 86400
+    for row in conn.execute("SELECT * FROM agent_os_orders WHERE phase='waiting_approval'").fetchall():
+        if conn.execute("SELECT 1 FROM telegram_cards WHERE task_id=? AND decision IS NULL",
+                        (row["task_id"],)).fetchone():
+            continue
+        record_path = Path(state) / row["task_id"] / f"{row['attempts']}.json"
+        request = {}
+        try:
+            checkpoint = json.loads(json.loads(record_path.read_text()).get("checkpoint_text", "{}"))
+            request = checkpoint.get("approval_request") or {}
+        except (OSError, ValueError):
+            pass
+        scope = short(request.get("scope") or "unspecified scope", 400)
+        stamp = None
+        try:
+            stamp = fingerprint(row)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+        key = f"approval:{row['task_id']}:{row['attempts']}:{stamp}"
+        text = f"{badge(row['owning_agent'])} stopped at a protected boundary. **Your call.**\n\n"
+        text += f"**WHAT IT NEEDS**\n  {scope}\n\n"
+        text += f"**WHY**\n  {short(request.get('reason') or 'No reason given.', 320)}\n\n"
+        text += "**IF YOU APPROVE**\n"
+        text += f"  A scoped grant, expires in {GRANT_TTL // 3600} hours. The same task resumes\n"
+        text += "  with ONLY that scope added. Everything else stays forbidden.\n\n"
+        text += "**IF YOU DENY**\n"
+        text += "  The task ends, and the denial is recorded with the work.\n\n"
+        text += "Nothing happens either way until you press one."
+        conn.execute("""INSERT OR IGNORE INTO telegram_cards
+            (id,event_key,task_id,snapshot,expires,message,scope) VALUES (?,?,?,?,?,?,?)""",
+            (secrets.token_urlsafe(12), key, row["task_id"], stamp, time.time()+GRANT_TTL,
+             text, request.get("scope") or ""))
+
+
+def collect_collisions(conn):
+    """Surface workspace collisions: a worker refused to touch files because
+    another active context owns an overlapping mutable surface. Nothing was
+    overwritten; TK decides when it is safe to resume."""
+    for row in conn.execute("SELECT * FROM agent_os_orders WHERE phase='collision'").fetchall():
+        if conn.execute("SELECT 1 FROM telegram_cards WHERE task_id=? AND decision IS NULL",
+                        (row["task_id"],)).fetchone():
+            continue
+        event = conn.execute("SELECT detail FROM agent_os_events WHERE task_id=? AND kind='collision' "
+                             "ORDER BY id DESC LIMIT 1", (row["task_id"],)).fetchone()
+        detail = json.loads(event["detail"]) if event else {}
+        key = f"collision:{row['task_id']}:{detail.get('with_context', '?')}"
+        text = f"⚠ {badge(row['owning_agent'])} paused before touching any files. **Your call.**\n\n"
+        text += "**WHAT HAPPENED**\n"
+        text += f"  Task {row['task_id']} ({row['work_id']}) would write mutable surfaces "
+        text += f"already claimed by an active context: `{detail.get('with_context', 'unknown')}`"
+        if detail.get("other_task"):
+            text += f" (task {detail['other_task']})"
+        text += ".\n\n"
+        text += "**WHY**\n"
+        text += "  Two contexts must not silently overwrite the same surface. "
+        text += "The worker stopped before making changes.\n\n"
+        text += "**YOUR OPTIONS**\n"
+        text += "  Resume — re-check and run (only when the other context is done or the surfaces are split).\n"
+        text += "  Deny & cancel — end this task.\n\n"
+        text += "Nothing has been modified."
+        conn.execute("""INSERT OR IGNORE INTO telegram_cards
+            (id,event_key,task_id,snapshot,expires,message) VALUES (?,?,?,?,?,?)""",
+            (secrets.token_urlsafe(12), key, row["task_id"], None, time.time()+86400, text))
+
+
+def enqueue_directed_work(conn, state, routing_row):
+    """Turn an accepted routing proposal into the governed work item it proposed.
+
+    Only a structured proposal enqueues: the owning agent must exist in
+    registry/agents.yaml, the priority must be p0-p3, and the lane must be
+    ecosystem|directive. Anything missing or invalid means nothing is enqueued
+    (fail closed) — TK's accept press never fabricates a work item from prose.
+    Returns (task_id, agent, problem): problem is non-empty when refused.
+    """
+    from .bridge import enqueue
+    stored = conn.execute("SELECT proposal FROM routing_proposals WHERE task_id=?",
+                          (routing_row["task_id"],)).fetchone()
+    if not stored:
+        return None, None, "the routing proposal was not machine-readable"
+    try:
+        proposal = json.loads(stored["proposal"])
+    except ValueError:
+        return None, None, "the routing proposal was not valid JSON"
+    agent = proposal.get("owning_agent")
+    priority = proposal.get("priority")
+    lane = proposal.get("lane")
+    import yaml
+    from .bridge import ROOT as bridge_root
+    known = yaml.safe_load((bridge_root / "registry/agents.yaml").read_text())["agents"]
+    if agent not in known:
+        return None, None, f"proposed agent {short(str(agent), 40)!r} is not in the registry"
+    if priority not in {"p0", "p1", "p2", "p3"}:
+        return None, None, "the proposal has no valid priority"
+    if lane not in {"ecosystem", "directive"}:
+        return None, None, "the proposal has no valid lane"
+    directive_id = routing_row["work_id"].split("-", 1)[1].rsplit("-routing", 1)[0]
+    directive = conn.execute("SELECT * FROM telegram_directives WHERE id=?",
+                             (directive_id,)).fetchone()
+    if not directive:
+        return None, None, "the directive record is missing"
+    problem = {
+        "statement": "Directed work from an accepted routing proposal.",
+        "directive": directive["text"],
+        "captured_as": f"telegram_directives#{directive['id']}",
+        "routing_work_id": routing_row["work_id"],
+        "routing_proposal": proposal,
+    }
+    # Backlog-started directives keep their canonical board provenance; the
+    # mirror row exists because the tick syncs before routing.
+    if directive["backlog_work_id"]:
+        board = conn.execute("SELECT task_id FROM backlog_board_map WHERE work_id=?",
+                             (directive["backlog_work_id"],)).fetchone()
+        problem["origin"] = "autonomous_backlog"
+        problem["backlog_system"] = "hermes-kanban"
+        problem["backlog_work_id"] = directive["backlog_work_id"]
+        problem["board_item_id"] = board[0] if board else None
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    order = {
+        "work_id": f"directive-{directive_id}-work",
+        "routing_source": "registry/product-routing.yaml",
+        "source_product": "agent-os-workforce",
+        "owning_product": "agent-os-workforce",
+        "owning_agent": agent,
+        "workspace": str(ROOT),
+        "problem_or_opportunity": problem,
+        "priority": {"level": priority, "confidence": 1.0},
+        "desired_outcome": {"outcome": "The directed work, scoped by the directive above."},
+        "required_capabilities": ["filesystem"],
+        "constraints": {
+            "bounded": "Execute only the directed work. No publish, deploy, purchase, "
+                       "credential change, or browser action unless the task later "
+                       "requests scoped approval at a boundary.",
+        },
+        "acceptance_criteria": [
+            "Implements the directive's requested outcome in the workspace",
+            "Changes are scoped to the directive; no unrelated modifications",
+            "Honestly reports what was verified and what was not",
+        ],
+        "status": "approved",
+        "created_at": stamp,
+    }
+    try:
+        task_id = enqueue(state, order, authority=f"human-accepted-routing:{routing_row['work_id']}")
+    except (ValueError, OSError) as exc:
+        return None, None, f"enqueue refused: {short(str(exc), 120)}"
+    conn.execute("UPDATE telegram_directives SET status='closed', task_id=? WHERE id=?",
+                 (task_id, directive_id))
+    return task_id, agent, None
+
+
+def hygiene_report(conn):
+    """Flag-only stale-object audit (CONTEXT_RELEASE_INSTANCE_PINNING_AND_
+    DECOMMISSIONING.md). Lists candidates; deletes nothing; proposes nothing
+    into the executable backlog."""
+    sections = []
+    now = time.time()
+    stale_orders = conn.execute("""SELECT task_id, work_id, phase FROM agent_os_orders
+        WHERE phase NOT IN ('accepted','done','denied') AND (revoked=1 OR expires<?)""",
+        (now,)).fetchall()
+    if stale_orders:
+        sections.append(("Stale orders (revoked/expired, non-terminal)",
+                         [f"{r['task_id']} · {r['work_id']} · {r['phase']}" for r in stale_orders]))
+    stale_grants = conn.execute("""SELECT task_id, scope FROM agent_os_grants
+        WHERE consumed=0 AND expires<?""", (now,)).fetchall()
+    if stale_grants:
+        sections.append(("Expired unconsumed grants",
+                         [f"{r['task_id']} · {short(r['scope'], 60)}" for r in stale_grants]))
+    stale_cards = conn.execute("""SELECT id, task_id, channel FROM telegram_cards
+        WHERE decision IS NULL AND expires<?""", (now,)).fetchall()
+    if stale_cards:
+        sections.append(("Expired undecided cards",
+                         [f"{r['id']} · task {r['task_id']} · {r['channel']}" for r in stale_cards]))
+    stale_contexts = conn.execute("""SELECT context_id, repository, mode FROM active_workspaces
+        WHERE status='active' AND last_seen_at<?""", (now - 86400,)).fetchall()
+    if stale_contexts:
+        sections.append(("Stale active contexts (silent > 24h)",
+                         [f"{r['context_id']} · {r['repository']} · {r['mode']}" for r in stale_contexts]))
+    failed = conn.execute("SELECT id, text FROM telegram_directives WHERE status='route_failed'").fetchall()
+    if failed:
+        sections.append(("Directives that failed routing",
+                         [f"#{r['id']} · {short(r['text'], 60)}" for r in failed]))
+    orphans = []
+    if (ROOT / "docs/proposals").is_dir():
+        load_text = ""
+        for path in (ROOT / "BOOTSTRAP.md", ROOT / "adapters/hermes/BOOTSTRAP.md"):
+            if path.exists():
+                load_text += path.read_text()
+        for doc in sorted((ROOT / "docs/proposals").glob("*.md")):
+            if doc.name not in load_text:
+                orphans.append(doc.name)
+    if orphans:
+        sections.append(("Proposal docs not reachable from any load path", orphans))
+    return sections
+
+
+def lease_manage(conn, args):
+    if args.list:
+        for row in conn.execute("SELECT * FROM objective_leases ORDER BY valid_until"):
+            state = "revoked" if row["revoked"] else ("expired" if row["valid_until"] <= time.time() else "active")
+            print(f"{row['id']}  {state}  until {time.ctime(row['valid_until'])}  owner={row['owner']}")
+            print(f"    {row['objective']}")
+        return
+    if args.revoke:
+        conn.execute("UPDATE objective_leases SET revoked=1 WHERE id=?", (args.revoke,))
+        conn.commit()
+        print(f"Lease {args.revoke} revoked.")
+        return
+    if args.create:
+        if not args.id or not args.objective:
+            raise SystemExit("--create needs --id and --objective")
+        conn.execute("INSERT OR REPLACE INTO objective_leases(id,objective,owner,valid_until,revoked) "
+                     "VALUES (?,?,?,?,0)",
+                     (args.id, args.objective, args.owner, time.time() + args.days * 86400))
+        conn.commit()
+        print(f"Lease {args.id} active until {time.ctime(time.time() + args.days * 86400)}.")
+
+
+def workspace_manage(conn, args):
+    from . import bridge
+    if args.register:
+        bridge.register_workspace(conn, context_id=args.context_id or f"human:{int(time.time())}",
+                                  actor="human", mode=args.mode, repository=args.repository or "unknown",
+                                  workspace=args.workspace or "unspecified",
+                                  mutable_surfaces=args.surfaces)
+        conn.commit()
+        print("Context registered. Release it when the session ends.")
+        return
+    if args.release:
+        bridge.release_workspace(conn, args.context_id)
+        conn.commit()
+        print(f"Context {args.context_id} released.")
+        return
+    rows = conn.execute("SELECT * FROM active_workspaces WHERE status='active' "
+                        "ORDER BY last_seen_at DESC").fetchall()
+    if not rows:
+        print("No active contexts.")
+        return
+    for row in rows:
+        print(f"{row['context_id']}  {row['mode']}  {row['actor']}  "
+              f"{row['repository']} · {short(row['workspace'], 48)}  last_seen {time.ctime(row['last_seen_at'])}")
 
 
 def record_change(conn, product, kind, revision, summary):
@@ -752,7 +1027,22 @@ def route_directives(conn, state, now=None):
     """
     from .bridge import enqueue
     stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now or time.time()))
-    for row in conn.execute("SELECT id, text FROM telegram_directives WHERE status='captured' ORDER BY id").fetchall():
+    for row in conn.execute(
+            "SELECT id, text, backlog_work_id FROM telegram_directives WHERE status='captured' ORDER BY id").fetchall():
+        problem = {
+            "statement": "A directive from TK has no owner, priority, or lane.",
+            "directive": row["text"],
+            "captured_as": f"telegram_directives#{row['id']}",
+        }
+        # Backlog-started work carries canonical board provenance. The board row
+        # is the sync mirror; enqueue rejects the order if it is missing or done.
+        if row["backlog_work_id"]:
+            board = conn.execute("SELECT task_id FROM backlog_board_map WHERE work_id=?",
+                                 (row["backlog_work_id"],)).fetchone()
+            problem["origin"] = "autonomous_backlog"
+            problem["backlog_system"] = "hermes-kanban"
+            problem["backlog_work_id"] = row["backlog_work_id"]
+            problem["board_item_id"] = board[0] if board else None
         order = {
             "work_id": f"directive-{row['id']}-routing",
             "routing_source": "registry/product-routing.yaml",
@@ -760,11 +1050,7 @@ def route_directives(conn, state, now=None):
             "owning_product": "agent-os-workforce",
             "owning_agent": "router",
             "workspace": str(ROOT),
-            "problem_or_opportunity": {
-                "statement": "A directive from TK has no owner, priority, or lane.",
-                "directive": row["text"],
-                "captured_as": f"telegram_directives#{row['id']}",
-            },
+            "problem_or_opportunity": problem,
             "priority": {"level": "p1", "confidence": 1.0},
             "desired_outcome": {
                 "proposal": "One owning agent, a priority level, a lane, and the reasoning for each.",
@@ -776,6 +1062,12 @@ def route_directives(conn, state, now=None):
                 "registry": "Choose the owner from registry/agents.yaml by `owns` domain, "
                             "minimum sufficient team, applying the agent-vs-skill test.",
                 "lane": "ecosystem for operating-layer work, directive for product work.",
+                "proposal_format": "Write the checkpoint JSON with a 'proposal' object: "
+                                   "{\"owning_agent\": \"<agent id from registry/agents.yaml>\", "
+                                   "\"priority\": \"p0|p1|p2|p3\", \"lane\": \"ecosystem|directive\"}. "
+                                   "When TK accepts the proposal, this object is what enqueues the "
+                                   "directed work — an absent or invalid proposal means nothing is "
+                                   "enqueued automatically.",
             },
             "acceptance_criteria": [
                 "Names one owning agent that exists in registry/agents.yaml",
@@ -1023,13 +1315,15 @@ def backlog_top(k=3):
         return None
 
 
-def eligible_backlog_item():
+def eligible_backlog_item(conn=None):
     """Highest-ranked backlog item Milchik is actually allowed to start.
 
     IDENTITY.md §09: he may enqueue only work that is `source: human`
     (pre-authorized by TK's own intent) or already `approved`. A high rank on an
     unapproved agent proposal is attention, not permission, so those are skipped
-    rather than started.
+    rather than started. Items anchored to an objective lease must reference a
+    live, unexpired lease — a stale lease is not authority to keep selecting
+    work (AUTONOMOUS_OPERATING_GUARDRAILS §2).
     """
     try:
         import yaml
@@ -1040,11 +1334,83 @@ def eligible_backlog_item():
     open_items = [i for i in items if i.get("status") != "done"]
     if not open_items:
         return None, "The backlog is empty."
+    lease_block = None
     for item in backlog_runtime.rank(open_items):
-        if backlog_runtime.authority_present(item) or item.get("status") == "approved":
-            return item, None
+        if not (backlog_runtime.authority_present(item) or item.get("status") == "approved"):
+            continue
+        lease_id = item.get("objective_lease")
+        if lease_id:
+            if conn is None:
+                lease_block = f"{item['work_id']} declares a lease but lease state is unavailable"
+                continue
+            lease = conn.execute("SELECT * FROM objective_leases WHERE id=? AND revoked=0",
+                                 (lease_id,)).fetchone()
+            if not lease:
+                lease_block = f"{item['work_id']} is anchored to unknown lease {lease_id!r}"
+                continue
+            if lease["valid_until"] <= time.time():
+                lease_block = f"{item['work_id']} is anchored to expired lease {lease_id!r}"
+                continue
+        return item, None
+    if lease_block:
+        return None, f"Nothing eligible: {lease_block}. Renew or re-anchor the lease before starting."
     return None, ("Nothing in the backlog is cleared to start. The top items are "
                   "proposals waiting on your approval.")
+
+
+def sync_backlog_to_board(conn):
+    """Mirror open backlog items onto the Hermes Kanban board.
+
+    The board is the canonical executable backlog
+    (docs/proposals/MILCHIK_HERMES_KANBAN_CONTROL.md). backlog.yaml remains
+    Milchik's auditable ranking model; this keeps one blocked board row per
+    open item so backlog work always has canonical board provenance and the
+    board's priority column mirrors the ranking. Mirror rows are blocked —
+    the fleet dispatcher only claims tasks with an agent_os_orders row, so a
+    mirror row is a queue record, never a dispatch unit. When backlog.yaml
+    marks an item done, its mirror row is closed.
+    """
+    from hermes_cli import kanban_db as kb
+    try:
+        import yaml
+        from runtime import backlog as backlog_runtime
+        items = yaml.safe_load((ROOT / "agents/milchik/backlog.yaml").read_text()) or []
+    except (OSError, ImportError):
+        return {"synced": 0, "closed": 0}
+    open_by_id = {item["work_id"]: item for item in items if item.get("status") != "done"}
+    synced = closed = 0
+    for work_id, task_id in conn.execute(
+            "SELECT work_id, task_id FROM backlog_board_map").fetchall():
+        if work_id not in open_by_id:
+            task = kb.get_task(conn, task_id)
+            if task is not None and task.status != "done":
+                kb.complete_task(conn, task_id,
+                    result="Backlog item completed or removed from backlog.yaml",
+                    summary="Mirror row closed by backlog sync.")
+                closed += 1
+    for work_id, item in open_by_id.items():
+        score = int(backlog_runtime.attention_score(item))
+        existing = conn.execute(
+            "SELECT task_id FROM backlog_board_map WHERE work_id=?", (work_id,)).fetchone()
+        if existing:
+            task = kb.get_task(conn, existing[0])
+            if task is None:
+                conn.execute("DELETE FROM backlog_board_map WHERE work_id=?", (work_id,))
+                existing = None
+        if not existing:
+            task_id = kb.create_task(conn, title=work_id, body=json.dumps(item),
+                assignee="milchik", created_by="agent-os-backlog-sync",
+                workspace_kind="dir", workspace_path=str(ROOT),
+                idempotency_key="agent-os-backlog:" + work_id,
+                max_runtime_seconds=120, max_retries=0, initial_status="blocked")
+            conn.execute("INSERT OR REPLACE INTO backlog_board_map(work_id,task_id) VALUES (?,?)",
+                         (work_id, task_id))
+            synced += 1
+        else:
+            task_id = existing[0]
+        conn.execute("UPDATE tasks SET priority=? WHERE id=?", (score, task_id))
+    conn.commit()
+    return {"synced": synced, "closed": closed}
 
 
 def status_report(conn, config):
@@ -1124,6 +1490,16 @@ def status_report(conn, config):
     for row in blocked:
         lines.append(f"  {short(row['title'] or row['id'], 60)}")
     lines.append(f"FLEET          {counts.get('running',0)} running · {counts.get('review',0)} in review")
+
+    active = conn.execute("SELECT * FROM active_workspaces WHERE status='active' "
+                          "ORDER BY last_seen_at DESC LIMIT 6").fetchall()
+    if active:
+        lines.append("")
+        lines.append("ACTIVE CONTEXTS")
+        for context in active:
+            who = context["actor"] + (f" · {context['agent_role']}" if context["agent_role"] else "")
+            lines.append(f"  {context['context_id']:<24} {context['mode']}  {who}")
+            lines.append(f"      {short(context['repository'], 24)} · {short(context['workspace'], 40)}")
 
     ranked = backlog_top(2)
     if ranked:
@@ -1274,7 +1650,7 @@ def perform_publish(order, row, chosen="accept"):
             + (f" {target} goes live in a minute or two." if target else ""))
 
 
-def decide(conn, config, query):
+def decide(conn, config, query, state=None):
     """Only authenticated, unexpired, single-use callbacks can accept a frozen result."""
     from hermes_cli import kanban_db as kb
     message = query.get("message", {})
@@ -1283,7 +1659,7 @@ def decide(conn, config, query):
         return "Not authorized"
     parts = str(query.get("data", "")).split(":")
     feedback_actions = {name for name, _label, _reason in FEEDBACK_CHOICES}
-    valid = {"accept","commit","deploy","pause"} | feedback_actions
+    valid = {"accept","commit","deploy","pause","approve","deny","resume"} | feedback_actions
     if len(parts) != 3 or parts[0] != "aos" or parts[2] not in valid:
         return "Unknown decision"
     card = conn.execute("SELECT * FROM telegram_cards WHERE id=?", (parts[1],)).fetchone()
@@ -1296,6 +1672,50 @@ def decide(conn, config, query):
     if not row or not task or row["revoked"]:
         return "Task revoked or missing"
     action = parts[2]
+    if action == "resume":
+        # Collision recovery: TK judged the surfaces reconciled. Re-queue the
+        # SAME task; the worker re-checks overlap before touching files.
+        from .bridge import emit
+        if row["phase"] != "collision":
+            return "Task is not in a collision state"
+        conn.execute("UPDATE agent_os_orders SET phase='queued' WHERE task_id=?", (task.id,))
+        kb.unblock_task(conn, task.id)
+        emit(conn, task.id, "collision_resumed", {"by": config["user_id"]})
+        result = "Resumed. The worker re-checks for collisions before touching files."
+        conn.execute("UPDATE telegram_cards SET decision=? WHERE id=?", (action, card["id"]))
+        return result
+    if action in {"approve", "deny"}:
+        # Scoped-authority decisions: the task is parked at a protected
+        # boundary, not in review. Approve grants ONLY the requested scope and
+        # resumes the SAME task; deny terminates it with the denial recorded.
+        # Deny also serves collision cards: ending the task is the cancel path.
+        from .bridge import emit
+        if action == "approve" and row["phase"] != "waiting_approval":
+            return "Task is not awaiting approval"
+        if action == "deny" and row["phase"] not in {"waiting_approval", "collision"}:
+            return "Task has no open authority request"
+        if card["snapshot"]:
+            try:
+                if fingerprint(row) != card["snapshot"]:
+                    return "Files changed since this card; review the refreshed card"
+            except (OSError, ValueError, subprocess.SubprocessError):
+                return "Cannot verify current files; inspect locally"
+        scope = card["scope"] or "unspecified scope"
+        if action == "approve":
+            conn.execute("INSERT OR REPLACE INTO agent_os_grants VALUES (?,?,?,?,?,?,0)",
+                         (task.id, row["work_id"], scope, config["user_id"],
+                          time.time(), time.time() + 86400))
+            conn.execute("UPDATE agent_os_orders SET phase='queued' WHERE task_id=?", (task.id,))
+            kb.unblock_task(conn, task.id)
+            emit(conn, task.id, "grant_approved", {"scope": short(scope, 300), "ttl": 86400})
+            result = "Approved. The task resumes under the scoped grant; everything else stays blocked."
+        else:
+            conn.execute("UPDATE agent_os_orders SET revoked=1, phase='denied' WHERE task_id=?", (task.id,))
+            kb.block_task(conn, task.id, reason="Request denied by the operator")
+            emit(conn, task.id, "grant_denied", {"scope": short(scope, 300)})
+            result = "Denied. The task is cancelled; the denial is recorded with the work."
+        conn.execute("UPDATE telegram_cards SET decision=? WHERE id=?", (action, card["id"]))
+        return result
     approving = action in {"accept", "commit", "deploy"}
     if approving:
         if task.status != "review" or row["phase"] != "review" or not card["snapshot"]:
@@ -1341,6 +1761,20 @@ def decide(conn, config, query):
             # The acceptance stands; only the publish failed. Saying otherwise
             # would leave TK believing work was saved when it was not.
             result = f"Accepted, but saving failed: {short(str(exc), 120)}"
+        # Accepting a routing proposal closes Phase 1: the directed work is
+        # enqueued as its own governed task, same directive, same board
+        # provenance. Fail closed — a proposal that is missing, malformed, or
+        # names an unknown agent enqueues nothing.
+        if (row["work_id"].startswith("directive-") and row["work_id"].endswith("-routing")
+                and state is not None):
+            new_task, agent, problem = enqueue_directed_work(conn, state, row)
+            if new_task:
+                result = (f"Accepted. Directed work enqueued for {short(str(agent), 32)} "
+                          f"({new_task}) — it runs on the next tick under the same "
+                          "inspection and review loop.")
+            else:
+                result = (f"Accepted, but the directed work was NOT enqueued: {problem}. "
+                          "Create the work item manually.")
     else:
         # Feedback and pause both stop further execution. Feedback is distinct
         # input the producer receives, not just a rejection: record it on the
@@ -1369,28 +1803,42 @@ def deliver(conn, config, api):
         payload = {"chat_id": chat_id, "text": card["message"][:3900],
                    "link_preview_options": {"is_disabled": True}}
         if channel == "private" and card["task_id"]:
-            actions = []
-            if card["snapshot"]:
-                order_row_ = conn.execute("SELECT payload FROM agent_os_orders WHERE task_id=?",
-                                          (card["task_id"],)).fetchone()
-                try:
-                    approved = json.loads(order_row_["payload"]) if order_row_ else {}
-                except (ValueError, TypeError):
-                    approved = {}
-                actions = [(label, name) for name, label, _detail in publish_choices(approved)]
-            actions += [(label, name) for name, label, _reason in FEEDBACK_CHOICES]
-            actions += [("Pause", "pause")]
-            # One row per button: "Approve & publish" must never sit inches from
-            # "Approve & save" on a phone.
-            payload["reply_markup"] = {"inline_keyboard":[
-                [{"text":label,"callback_data":f"aos:{card['id']}:{action}"}] for label,action in actions]}
+            phase_row = conn.execute("SELECT phase FROM agent_os_orders WHERE task_id=?",
+                                     (card["task_id"],)).fetchone()
+            if phase_row and phase_row["phase"] == "collision":
+                payload["reply_markup"] = {"inline_keyboard": [
+                    [{"text": "Resume (re-check overlap)", "callback_data": f"aos:{card['id']}:resume"}],
+                    [{"text": "Deny & cancel", "callback_data": f"aos:{card['id']}:deny"}]]}
+            elif phase_row and phase_row["phase"] == "waiting_approval":
+                # One row per button. Approval cards get exactly two: approve
+                # the scoped grant or cancel. No feedback buttons — this is not
+                # a quality judgement, it is an authority decision.
+                payload["reply_markup"] = {"inline_keyboard": [
+                    [{"text": "Approve scoped authority", "callback_data": f"aos:{card['id']}:approve"}],
+                    [{"text": "Deny & cancel", "callback_data": f"aos:{card['id']}:deny"}]]}
+            else:
+                actions = []
+                if card["snapshot"]:
+                    order_row_ = conn.execute("SELECT payload FROM agent_os_orders WHERE task_id=?",
+                                              (card["task_id"],)).fetchone()
+                    try:
+                        approved = json.loads(order_row_["payload"]) if order_row_ else {}
+                    except (ValueError, TypeError):
+                        approved = {}
+                    actions = [(label, name) for name, label, _detail in publish_choices(approved)]
+                actions += [(label, name) for name, label, _reason in FEEDBACK_CHOICES]
+                actions += [("Pause", "pause")]
+                # One row per button: "Approve & publish" must never sit inches from
+                # "Approve & save" on a phone.
+                payload["reply_markup"] = {"inline_keyboard":[
+                    [{"text":label,"callback_data":f"aos:{card['id']}:{action}"}] for label,action in actions]}
         # Ambiguous sends are never automatically retried (Telegram has no idempotency key).
         conn.execute("UPDATE telegram_cards SET delivery='uncertain' WHERE id=?", (card["id"],))
         result = api.call("sendMessage", **payload)
         conn.execute("UPDATE telegram_cards SET delivery='sent',message_id=? WHERE id=?", (result["message_id"],card["id"]))
 
 
-def handle_update(conn, config, api, update):
+def handle_update(conn, config, api, update, state=None):
     """Act on one Telegram update. Shared by the minute tick and the listener."""
     if "callback_query" in update and str(update["callback_query"].get("data","")).startswith("pub:"):
         # Batch publish. Separate from decide(), which answers a review card: this
@@ -1418,7 +1866,7 @@ def handle_update(conn, config, api, update):
             pass
     elif "callback_query" in update:
         query = update["callback_query"]
-        response = decide(conn,config,query)
+        response = decide(conn,config,query,state)
         try:
             api.call("answerCallbackQuery",callback_query_id=query["id"],text=response[:190],show_alert=True)
         except TelegramError:
@@ -1426,7 +1874,7 @@ def handle_update(conn, config, api, update):
         parts = str(query.get("data", "")).split(":")
         if len(parts) == 3:
             card = conn.execute("SELECT * FROM telegram_cards WHERE id=?", (parts[1],)).fetchone()
-            decided = {"accept","commit","deploy","pause"} | {n for n,_l,_r in FEEDBACK_CHOICES}
+            decided = {"accept","commit","deploy","pause","approve","deny","resume"} | {n for n,_l,_r in FEEDBACK_CHOICES}
             if card and card["decision"] in decided and card["decided_by"] == config["user_id"]:
                 try:
                     suffix = card["decision"] + (" — " + card["feedback"] if card["feedback"] else "")
@@ -1548,13 +1996,14 @@ def handle_update(conn, config, api, update):
             except TelegramError:
                 pass
         if body == "/next" and sender == config["user_id"] and chat == config["chat_id"]:
-            item, refusal = eligible_backlog_item()
+            item, refusal = eligible_backlog_item(conn)
             if refusal:
                 reply = refusal
             else:
                 problem = item.get("problem") or item.get("title", "")
-                conn.execute("INSERT INTO telegram_directives(ts,text) VALUES (?,?)",
-                             (time.time(), short("%s\n\n%s" % (item.get("title", ""), problem), 2000)))
+                conn.execute("INSERT INTO telegram_directives(ts,text,backlog_work_id) VALUES (?,?,?)",
+                             (time.time(), short("%s\n\n%s" % (item.get("title", ""), problem), 2000),
+                              item.get("work_id")))
                 number = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                 reply = ("Starting #%d: %s\n\nPicked because it is %s and %s. "
                          "Routing it now — I will come back when someone needs to decide something."
@@ -1636,7 +2085,7 @@ def listen(state=DEFAULT_STATE, config_path=CONFIG, api=None, once=False):
                 with lock(Path(state) / "telegram.lock"):
                     for update in updates:
                         config = json.loads(Path(config_path).read_text())  # setup may have changed it
-                        handle_update(conn, config, api, update)
+                        handle_update(conn, config, api, update, state)
                         conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('offset',?)",
                                      (str(update["update_id"] + 1),))
             if once:
@@ -1665,19 +2114,27 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
                 updates = api.call("getUpdates",offset=int(offset[0]) if offset else 0,
                     timeout=0,limit=25,allowed_updates=["callback_query","message","my_chat_member"])
             for update in updates:
-                handle_update(conn, config, api, update)
-                conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('offset',?)", (str(update['update_id']+1),))
+                handle_update(conn, config, api, update, state)
+                conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('offset',?)",
+                             (str(update['update_id'] + 1),))
             request_inspection(conn,state)
             read_inspection_verdicts(conn,state)
             run_revisions(conn,state)
             collect_reviews(conn,state)
+            collect_approval_requests(conn,state)
             if config["basis"] == "commit":
                 collect_commits(conn,config.get("repositories",{}))
             collect_batches(conn,config["every"],config["basis"])
             collect_fleet(conn)
+            sync_backlog_to_board(conn)
             route_directives(conn,state)
+            collect_collisions(conn)
             collect_contributions(conn,state)
             collect_signals(conn)
+            # Stale context rows are awareness clutter, not authority; release
+            # anything silent for a day so collisions compare only live work.
+            conn.execute("UPDATE active_workspaces SET status='released' WHERE status='active' "
+                         "AND last_seen_at < ?", (time.time() - 86400,))
             deliver(conn,config,api)
             return {"status":"ok"}
     finally:
@@ -1759,6 +2216,25 @@ def main():
     sub.add_parser("monitor")
     sub.add_parser("preview")
     sub.add_parser("listen")
+    sub.add_parser("e2e")
+    sub.add_parser("hygiene")
+    lease = sub.add_parser("lease")
+    lease.add_argument("--create", action="store_true")
+    lease.add_argument("--list", action="store_true")
+    lease.add_argument("--revoke")
+    lease.add_argument("--id")
+    lease.add_argument("--objective")
+    lease.add_argument("--owner", default="steward")
+    lease.add_argument("--days", type=int, default=30)
+    workspace = sub.add_parser("workspace")
+    workspace.add_argument("--register", action="store_true")
+    workspace.add_argument("--release", action="store_true")
+    workspace.add_argument("--context-id")
+    workspace.add_argument("--repository")
+    workspace.add_argument("--workspace", dest="workspace_path")
+    workspace.add_argument("--mode", choices=["human_exploration", "consultation", "verification"],
+                           default="human_exploration")
+    workspace.add_argument("--surfaces", nargs="*")
     change = sub.add_parser("record-change")
     change.add_argument("--product",required=True)
     change.add_argument("--kind",choices=["commit","deployment"],required=True)
@@ -1781,6 +2257,9 @@ def main():
     if args.action == "listen":
         print(json.dumps(listen()))
         return
+    if args.action == "e2e":
+        from .e2e import main as e2e_main
+        raise SystemExit(e2e_main())
     if args.action == "monitor":
         try:
             pair_monitor()
@@ -1791,7 +2270,19 @@ def main():
     conn = connect(DEFAULT_STATE)
     schema(conn)
     try:
-        if args.action == "record-change":
+        if args.action == "hygiene":
+            sections = hygiene_report(conn)
+            if not sections:
+                print("Hygiene audit: no stale candidates.")
+            for title, items in sections:
+                print(f"\n== {title} ({len(items)})")
+                for item in items:
+                    print(f"  {item}")
+        elif args.action == "lease":
+            lease_manage(conn, args)
+        elif args.action == "workspace":
+            workspace_manage(conn, args)
+        elif args.action == "record-change":
             record_change(conn,args.product,args.kind,args.revision,args.summary)
         elif args.action == "record-signal":
             record_signal(conn,args.scope,args.polarity,args.text)

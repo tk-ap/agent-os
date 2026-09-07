@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -54,11 +55,30 @@ def connect(state):
             -- the migration in telegram.py; it is declared here so a fresh one
             -- never depends on that having run.
             owning_agent TEXT,
+            -- Execution-context guardrail: governed_execution by default,
+            -- verification for inspections. Declared here for the same reason.
+            execution_mode TEXT NOT NULL DEFAULT 'governed_execution',
             next_at REAL NOT NULL DEFAULT 0, harnesses TEXT NOT NULL,
             max_attempts INTEGER NOT NULL, timeout INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS agent_os_capacity (
             harness TEXT PRIMARY KEY, available_at REAL NOT NULL, reason TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS agent_os_grants (
+            task_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, scope TEXT NOT NULL,
+            approver INTEGER NOT NULL, granted_at REAL NOT NULL,
+            expires REAL NOT NULL, consumed INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS active_workspaces (
+            context_id TEXT PRIMARY KEY, actor TEXT NOT NULL, mode TEXT NOT NULL,
+            agent_role TEXT, task_id TEXT, product TEXT, repository TEXT NOT NULL,
+            workspace TEXT NOT NULL, mutable_surfaces TEXT NOT NULL DEFAULT '["**"]',
+            status TEXT NOT NULL DEFAULT 'active', started_at REAL NOT NULL,
+            last_seen_at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS objective_leases (
+            id TEXT PRIMARY KEY, objective TEXT NOT NULL, owner TEXT NOT NULL,
+            valid_until REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS agent_os_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, task_id TEXT NOT NULL,
@@ -128,6 +148,15 @@ def enqueue(state, order, authority, expires_in=86400, selected=harnesses.SUPPOR
     conn = connect(state)
     try:
         with lock(state / "enqueue.lock"):
+            provenance = order.get("problem_or_opportunity", {})
+            if provenance.get("origin") == "autonomous_backlog":
+                board_item_id = provenance.get("board_item_id")
+                if not board_item_id:
+                    raise ValueError("autonomous_backlog origin requires a canonical board_item_id")
+                board_task = kb.get_task(conn, board_item_id)
+                if board_task is None or board_task.status == "done":
+                    raise ValueError("autonomous backlog work must reference a live, "
+                                     "non-done Hermes Kanban board item")
             existing = conn.execute("SELECT * FROM agent_os_orders WHERE work_id=?", (order["work_id"],)).fetchone()
             if existing:
                 if existing["digest"] != digest(order):
@@ -138,11 +167,12 @@ def enqueue(state, order, authority, expires_in=86400, selected=harnesses.SUPPOR
                 workspace_kind="dir", workspace_path=str(workspace),
                 initial_status="blocked", idempotency_key="agent-os:" + order["work_id"],
                 max_runtime_seconds=timeout * max_attempts + 120, max_retries=2)
+            mode = order.get("problem_or_opportunity", {}).get("execution_mode") or "governed_execution"
             conn.execute("""INSERT INTO agent_os_orders
-                (task_id,work_id,payload,digest,authority,expires,harnesses,max_attempts,timeout,owning_agent)
-                VALUES (?,?,?,?,?,?,?,?,?,?)""", (task_id, order["work_id"], json.dumps(order),
+                (task_id,work_id,payload,digest,authority,expires,harnesses,max_attempts,timeout,owning_agent,execution_mode)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (task_id, order["work_id"], json.dumps(order),
                 digest(order), authority, time.time() + expires_in, json.dumps(selected), max_attempts, timeout,
-                order.get("owning_agent")))
+                order.get("owning_agent"), mode))
             kb.unblock_task(conn, task_id)
             emit(conn, task_id, "queued", {"work_id": order["work_id"],
                                            "harnesses": list(selected)})
@@ -187,7 +217,7 @@ def tick(state, dry_run=False):
                 "note": "Preview only; no reclaim, process launch, or capacity probe"}
         for row in conn.execute("SELECT * FROM agent_os_orders").fetchall():
             task = kb.get_task(conn, row["task_id"])
-            if not authorized(row) and task.status != "running" and row["phase"] not in {"review", "revoked"}:
+            if not authorized(row) and task.status != "running" and row["phase"] not in {"review", "revoked", "waiting_approval", "denied"}:
                 if not dry_run:
                     stop(conn, task.id, "revoked", "Authority expired, revoked, or payload changed")
             elif row["phase"] == "waiting_capacity" and row["next_at"] <= time.time() and authorized(row):
@@ -222,8 +252,74 @@ def snapshot(workspace):
     return p.stdout if p.returncode == 0 else "Not a Git workspace"
 
 
-def prompt_for(order, authority, checkpoint, previous):
-    return "\n".join([
+def short(value, limit=300):
+    text = str(value or "")
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def register_workspace(conn, *, context_id, actor, mode, agent_role=None, task_id=None,
+                       product=None, repository, workspace, mutable_surfaces=None):
+    """Record an active execution context (awareness, not authority)."""
+    surfaces = json.dumps(mutable_surfaces) if mutable_surfaces is not None else '["**"]'
+    conn.execute("""INSERT OR REPLACE INTO active_workspaces
+        (context_id,actor,mode,agent_role,task_id,product,repository,workspace,
+         mutable_surfaces,status,started_at,last_seen_at)
+        VALUES (?,?,?,?,?,?,?,?,?,'active',?,?)""",
+        (context_id, actor, mode, agent_role, task_id, product, repository,
+         str(workspace), surfaces, time.time(), time.time()))
+
+
+def touch_workspace(conn, context_id):
+    conn.execute("UPDATE active_workspaces SET last_seen_at=?, status='active' WHERE context_id=?",
+                 (time.time(), context_id))
+
+
+def release_workspace(conn, context_id):
+    conn.execute("UPDATE active_workspaces SET status='released' WHERE context_id=?", (context_id,))
+
+
+def workspace_collisions(conn, *, repository, mutable_surfaces, context_id, task_id=None):
+    """Classify overlap with other active contexts in the same repository.
+
+    Returns (level, other_row): 'CONFLICTING' when another active context in
+    the same repository declares an overlapping mutable surface; 'LOW_RISK'
+    when a same-repo context exists without overlap; (None, None) otherwise.
+    The caller's own context and consultation-only contexts never collide.
+    """
+    surfaces = set(mutable_surfaces or ["**"])
+    low = None
+    for row in conn.execute(
+            "SELECT * FROM active_workspaces WHERE repository=? AND status='active'",
+            (repository,)).fetchall():
+        if row["context_id"] == context_id or row["task_id"] == task_id:
+            continue
+        if row["mode"] == "consultation":
+            continue
+        other_surfaces = set(json.loads(row["mutable_surfaces"] or '["**"]'))
+        if surfaces & other_surfaces:
+            return "CONFLICTING", row
+        low = row
+    return ("LOW_RISK", low) if low else (None, None)
+
+
+def config_digest():
+    """Cheap versioning of the governance inputs an attempt was executed under."""
+    digest = hashlib.sha256()
+    for rel in ("registry/agents.yaml", "policies/AUTONOMY_POLICY.md", "policies/HANDOFF_POLICY.md"):
+        path = ROOT / rel
+        if path.exists():
+            digest.update(path.read_bytes())
+    return digest.hexdigest()[:16]
+
+
+def git_ref(workspace):
+    result = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"],
+                            capture_output=True, text=True, timeout=15)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def prompt_for(order, authority, checkpoint, previous, grant=None):
+    lines = [
         "Execute this bounded Agent OS work order. Read workspace AGENTS.md first.",
         "Only local file work is authorized. No send/publish/push/merge/deploy, purchases,",
         "credential changes, browser execution, or nested agent/CLI delegation.",
@@ -232,13 +328,23 @@ def prompt_for(order, authority, checkpoint, previous):
         "Inspect existing progress before continuing; reconcile completed steps, do not repeat them.",
         "After each meaningful step write JSON to " + str(checkpoint) + " with:",
         '{"summary":"...","completed":[],"remaining":[],"artifacts":[],"verification":[],',
-        ' "status":"in_progress|ready_for_review|blocked"}.',
+        ' "status":"in_progress|ready_for_review|blocked|waiting_approval"}.',
         "Use ready_for_review only after the acceptance criteria have been checked.",
         "A successful CLI exit is not independent verification. Report unsupported checks honestly.",
+        "If the next meaningful step needs authority beyond local file work (publish, deploy,",
+        "purchase, credential changes, browser execution, messaging), do NOT perform it:",
+        "write the checkpoint with \"status\": \"waiting_approval\" and",
+        '"approval_request": {"scope": "...exactly what you need...", "reason": "...why..."},',
+        "then exit. The operator will approve or deny; the same task resumes either way.",
         "Authority reference: " + authority,
         "Work order: " + json.dumps(order),
         "Previous checkpoint: " + json.dumps(previous),
-    ])
+    ]
+    if grant:
+        lines.insert(6, "TK-approved scoped authority (grant): " + grant["scope"])
+        lines.insert(7, "The grant expires at epoch " + str(int(grant["expires"])) +
+                     ". It authorizes ONLY the scope above; every other restriction still applies.")
+    return "\n".join(lines)
 
 
 def run_cli(argv, prompt, workspace, output, errors, timeout, alive):
@@ -295,6 +401,34 @@ def worker(state, task_id, run_id, runner=run_cli):
         return
     order = json.loads(row["payload"])
     workspace = validate(order)
+    # Execution-context guardrail (docs/proposals/EXECUTION_CONTEXT_AND_
+    # WORKSPACE_ISOLATION.md): register this task's context and refuse to run
+    # on top of an overlapping active context. Awareness is not authority —
+    # the row only answers "who is touching what".
+    problem = order.get("problem_or_opportunity", {})
+    repository = problem.get("repository") or order["owning_product"]
+    surfaces = problem.get("mutable_surfaces") or ["**"]
+    mode = problem.get("execution_mode") or "governed_execution"
+    context_id = f"task:{task_id}"
+    register_workspace(conn, context_id=context_id, actor="agent", mode=mode,
+                       agent_role=order.get("owning_agent"), task_id=task_id,
+                       product=order["owning_product"], repository=repository,
+                       workspace=str(workspace), mutable_surfaces=surfaces)
+    level, other = workspace_collisions(conn, repository=repository,
+                                        mutable_surfaces=surfaces, context_id=context_id,
+                                        task_id=task_id)
+    if level == "CONFLICTING":
+        assert other is not None  # the level only ever derives from a found row
+        conn.execute("UPDATE agent_os_orders SET phase='collision' WHERE task_id=?", (task_id,))
+        stop(conn, task_id, "collision", "Overlapping mutable surfaces with an active context", run_id)
+        emit(conn, task_id, "collision", {"with_context": other["context_id"],
+                                          "other_task": other["task_id"]})
+        release_workspace(conn, context_id)
+        conn.close()
+        return
+    if level == "LOW_RISK":
+        assert other is not None
+        emit(conn, task_id, "overlap_noted", {"with_context": other["context_id"]})
     emit(conn, task_id, "claim", {"harnesses": json.loads(row["harnesses"]),
                                   "attempts": row["attempts"], "max_attempts": row["max_attempts"]})
     # A second queue instance must not concurrently edit this same workspace.
@@ -332,6 +466,17 @@ def worker(state, task_id, run_id, runner=run_cli):
                     stop(conn, task_id, "blocked", "Total attempt budget exhausted", run_id)
                     emit(conn, task_id, "phase", {"phase": "blocked", "reason": "budget_exhausted"})
                     return
+                grant = conn.execute("SELECT * FROM agent_os_grants WHERE task_id=? AND consumed=0",
+                                     (task_id,)).fetchone()
+                if grant and grant["expires"] < time.time():
+                    # The operator approved, but the grant lapsed before this run
+                    # could use it. Park again rather than executing on stale
+                    # authority; the approval lineage stays in the event feed.
+                    conn.execute("DELETE FROM agent_os_grants WHERE task_id=?", (task_id,))
+                    conn.execute("UPDATE agent_os_orders SET phase='waiting_approval' WHERE task_id=?", (task_id,))
+                    stop(conn, task_id, "waiting_approval", "Scoped grant expired before use", run_id)
+                    emit(conn, task_id, "grant_expired", {"scope": grant["scope"]})
+                    return
                 candidates = []
                 for name in json.loads(row["harnesses"]):
                     capacity = conn.execute("SELECT available_at FROM agent_os_capacity WHERE harness=?", (name,)).fetchone()
@@ -354,13 +499,26 @@ def worker(state, task_id, run_id, runner=run_cli):
                     previous = json.loads(checkpoint.read_text())
                 before = snapshot(workspace)
                 out, err = folder / f"{attempt}.jsonl", folder / f"{attempt}.stderr"
+                # Agent-instance pinning (CONTEXT_RELEASE_INSTANCE_PINNING_AND_
+                # DECOMMISSIONING.md): evidence must answer "what actually
+                # performed this work" — harness path, repo ref, governance
+                # digest. A retry on another harness/model creates a
+                # distinguishable record.
                 record = {"harness": name, "attempt": attempt, "started_at": time.time(),
                           "authority_digest": row["digest"], "before": before,
-                          "previous_checkpoint": previous}
+                          "previous_checkpoint": previous,
+                          "agent_instance": {
+                              "instance_id": f"{task_id}:{attempt}",
+                              "role": order.get("owning_agent"),
+                              "harness": name,
+                              "harness_path": shutil.which(harnesses.command(name, workspace)[0]),
+                              "repository_ref": git_ref(workspace),
+                              "policy_digest": config_digest(),
+                          }}
                 atomic_json(folder / f"{attempt}.json", record)
                 try:
                     rc = runner(harnesses.command(name, workspace),
-                        prompt_for(order, row["authority"], checkpoint, previous),
+                        prompt_for(order, row["authority"], checkpoint, previous, grant),
                         workspace, out, err, row["timeout"], alive)
                     kind, delay = harnesses.classify(rc, out.read_text(errors="replace"), err.read_text(errors="replace"))
                     record.update(returncode=rc, result=kind)
@@ -381,6 +539,27 @@ def worker(state, task_id, run_id, runner=run_cli):
                                  (name, time.time() + (delay or 3600), "usage_limit"))
                     continue
                 if kind == "executed":
+                    # A clean exit is not automatically "work finished". Two
+                    # clean-exit states mean something other than completion.
+                    gate = {}
+                    try:
+                        gate = json.loads(record.get("checkpoint_text") or "{}")
+                    except ValueError:
+                        pass
+                    request = gate.get("approval_request")
+                    if gate.get("status") == "waiting_approval" and isinstance(request, dict) and request.get("scope"):
+                        # Park durably at the protected boundary. Same task, same
+                        # checkpoint chain; only a scoped grant resumes it.
+                        conn.execute("UPDATE agent_os_orders SET phase='waiting_approval' WHERE task_id=?", (task_id,))
+                        stop(conn, task_id, "waiting_approval", "Harness requested scoped authority", run_id)
+                        emit(conn, task_id, "waiting_approval",
+                             {"scope": short(request.get("scope")),
+                              "reason": short(request.get("reason")),
+                              "attempt": attempt})
+                        return
+                    if grant:
+                        conn.execute("UPDATE agent_os_grants SET consumed=1 WHERE task_id=? AND consumed=0",
+                                     (task_id,))
                     # Handoff to an explicit non-profile review lane, never auto-complete.
                     conn.execute("UPDATE agent_os_orders SET phase='review' WHERE task_id=?", (task_id,))
                     emit(conn, task_id, "phase", {"phase": "review"})
@@ -395,6 +574,7 @@ def worker(state, task_id, run_id, runner=run_cli):
         stop(conn, task_id, "blocked", str(exc), run_id)
         emit(conn, task_id, "phase", {"phase": "blocked", "reason": "worker_error"})
     finally:
+        release_workspace(conn, context_id)
         conn.close()
 
 

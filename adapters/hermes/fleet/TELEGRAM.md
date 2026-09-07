@@ -111,6 +111,59 @@ revision loop gave up — those stop until he acts. Commit digests, drift signal
 fleet lifecycle and contribution reports all go to the group, because the work
 continues whether or not he reads them.
 
+## Approval gates (scoped authority, same task resumes)
+
+A harness that needs authority beyond local file work does not act on it: it
+writes its checkpoint with `status: waiting_approval` and an
+`approval_request` (scope + reason) and exits. The order parks in a durable
+`waiting_approval` phase and Milchik sends a private-chat card with exactly two
+buttons:
+
+- **Approve scoped authority** — creates an `agent_os_grants` row (exact
+  requested scope, approver, 24-hour expiry) and resumes the SAME task. The
+  worker prompt carries the grant; everything else stays forbidden. The grant
+  is consumed exactly once, on the next clean completion.
+- **Deny & cancel** — terminates the task; the denial is recorded in the event
+  feed and the card.
+
+An approved grant that expires before the resumed run uses it re-parks the
+task (a `grant_expired` event) rather than executing on stale authority. The
+parked task survives restarts: phase, request, and grant all live in
+`kanban.db`. The offline e2e check exercises the full gate: park → card →
+approve → resume → review → accept.
+
+## Canonical board provenance
+
+The Hermes Kanban board is the canonical executable backlog
+(`docs/proposals/MILCHIK_HERMES_KANBAN_CONTROL.md`). Every minute the tick
+mirrors open `agents/milchik/backlog.yaml` items onto the board as blocked
+rows with the ranking score as board priority, so backlog work always has a
+board representation. A row's status tracks the YAML: an item marked `done`
+closes its mirror row.
+
+Work started from the backlog via `/next` carries provenance in its routed
+order — `origin: autonomous_backlog`, `backlog_system: hermes-kanban`,
+`board_item_id` — and `bridge.enqueue()` fails closed: an autonomous-backlog
+order whose board row is missing or already done is rejected, never queued.
+A plain chat directive is human-triggered and needs no backlog provenance;
+its board row is created at enqueue either way.
+
+## End-to-end check
+
+The whole Milchik path can be checked offline — real tick/dispatch/decide
+code, a fake Telegram transport, and fixture harness executables instead of
+models. It drives directive → board row → worker → W Dog inspection → review
+card → accept → done, and asserts the monitor channel got read-only lines
+with no approval buttons:
+
+```bash
+python /home/tk/Work/agent-os/adapters/hermes/fleet_cli.py telegram e2e
+```
+
+Same scenario as a test: `python -m unittest tests.test_telegram_e2e -v`
+under Hermes's venv with Agent OS and Hermes on `PYTHONPATH`. Run it after
+any change to the tick, bridge, or decide path.
+
 ## Giving a directive
 
 Prefix it: `> ship the sitemap fix` or `/do ship the sitemap fix`, in the private
@@ -120,6 +173,14 @@ Milchik records it as a numbered directive, echoes back what he wrote, and
 enqueues a routing task attributed to Router. Router proposes one owning agent,
 a priority, and a lane, with reasoning, and returns it as a review card to
 accept. Nothing is assigned or started by the act of speaking.
+
+**Accepting a routing proposal now enqueues the directed work.** The routing
+checkpoint must carry a structured `proposal` object (`owning_agent` from
+`registry/agents.yaml`, `priority` p0-p3, `lane` ecosystem|directive). When TK
+accepts the review card, the directed work is enqueued as its own governed
+task — same directive, same board provenance — owned by the proposed agent,
+and the directive closes. A proposal that is missing, malformed, or names an
+unknown agent enqueues nothing (fail closed) and the reply says so.
 
 **Capture is not execution.** Writing a row and reporting the row is not obeying
 an instruction, which is why the standing rule still holds: free-form Telegram
