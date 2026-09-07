@@ -133,6 +133,73 @@ class ApprovalGateTests(unittest.TestCase):
 
 
 @unittest.skipIf(kb is None, "Requires installed Hermes environment")
+class RoutingAcceptanceTests(unittest.TestCase):
+    """Accepting a routing proposal enqueues the directed work — fail closed
+    on a missing, malformed, or unregistered proposal."""
+
+    setUp = fleet_tests.FleetTests.setUp
+    tearDown = fleet_tests.FleetTests.tearDown
+
+    _MISSING = object()
+
+    def _routing(self, proposal=_MISSING):
+        conn = bridge.connect(self.state)
+        telegram.schema(conn)
+        conn.execute("INSERT INTO telegram_directives(ts,text,status) VALUES (?,'ship the sitemap fix','routing')",
+                     (time.time(),))
+        directive_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        work_id = f"directive-{directive_id}-routing"
+        conn.execute("""INSERT INTO agent_os_orders
+            (task_id,work_id,payload,digest,authority,expires,harnesses,max_attempts,timeout,owning_agent)
+            VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            ("t-routing", work_id, json.dumps(self.order), "d", "a",
+             time.time()+3600, '["codex-cli"]', 6, 900, "router"))
+        if proposal is not self._MISSING:
+            conn.execute("INSERT INTO routing_proposals(task_id,work_id,proposal) VALUES (?,?,?)",
+                         ("t-routing", work_id, json.dumps(proposal)))
+        conn.commit()
+        row = bridge.order_row(conn, "t-routing")
+        return conn, row, directive_id
+
+    def test_valid_proposal_enqueues_directed_work_and_closes_directive(self):
+        conn, row, directive_id = self._routing(
+            {"owning_agent": "eugene", "priority": "p1", "lane": "ecosystem"})
+        try:
+            task_id, agent, problem = telegram.enqueue_directed_work(conn, self.state, row)
+            self.assertIsNotNone(task_id)
+            self.assertIsNone(problem)
+            self.assertEqual(agent, "eugene")
+            work = bridge.order_row(conn, task_id)
+            self.assertEqual(work["owning_agent"], "eugene")
+            self.assertIn("ship the sitemap fix", json.loads(work["payload"])["problem_or_opportunity"]["directive"])
+            directive = conn.execute("SELECT status, task_id FROM telegram_directives WHERE id=?",
+                                     (directive_id,)).fetchone()
+            self.assertEqual(directive["status"], "closed")
+            self.assertEqual(directive["task_id"], task_id)
+        finally:
+            conn.close()
+
+    def test_unknown_agent_never_enqueues(self):
+        conn, row, _directive_id = self._routing(
+            {"owning_agent": "nobody", "priority": "p1", "lane": "ecosystem"})
+        try:
+            task_id, agent, problem = telegram.enqueue_directed_work(conn, self.state, row)
+            self.assertIsNone(task_id)
+            self.assertIn("registry", problem)
+        finally:
+            conn.close()
+
+    def test_missing_proposal_never_enqueues(self):
+        conn, row, _directive_id = self._routing()
+        try:
+            task_id, agent, problem = telegram.enqueue_directed_work(conn, self.state, row)
+            self.assertIsNone(task_id)
+            self.assertIn("machine-readable", problem)
+        finally:
+            conn.close()
+
+
+@unittest.skipIf(kb is None, "Requires installed Hermes environment")
 class BacklogBoardTests(unittest.TestCase):
     """The canonical-board contract for backlog-driven work."""
 

@@ -24,7 +24,8 @@ from adapters.hermes.fleet import bridge, telegram
 
 STAGES = ["capture", "board_row", "approval_parked", "approval_card",
           "grant_resumed", "worker_review", "inspection_verdict",
-          "card_delivered", "decision_done", "monitor_channel"]
+          "card_delivered", "decision_done", "work_enqueued",
+          "directive_closed", "monitor_channel"]
 
 # One fixture serves both the producer and the inspector: the prompt tells it
 # which mode it is in. It writes the checkpoint the worker consumes and exits
@@ -50,7 +51,8 @@ elif "TK-approved scoped authority" in prompt:
     summary = "Proposed one owning agent, a priority level, and a lane."
     checkpoint = {"summary": summary, "completed": ["fixture step"], "remaining": [],
                   "artifacts": [], "verification": ["fixture check"],
-                  "status": "ready_for_review"}
+                  "status": "ready_for_review",
+                  "proposal": {"owning_agent": "eugene", "priority": "p1", "lane": "ecosystem"}}
 else:
     # First run parks at a protected boundary: the harness needs authority it
     # does not have, so it requests a scoped grant instead of acting.
@@ -270,7 +272,7 @@ def run_offline_e2e(root=None, user_id=900000001):
                 message_id = card["message_id"] if card else None
             finally:
                 conn.close()
-            # 9. Callback accept -> canonical completion.
+            # 9. Callback accept -> canonical completion + directed work enqueued.
             if card_id and message_id:
                 api.queue_callback(f"aos:{card_id}:accept", user_id, chat_id, message_id)
                 telegram.tick(state, config_path, api)
@@ -280,6 +282,17 @@ def run_offline_e2e(root=None, user_id=900000001):
                     row = bridge.order_row(conn, producer_task)
                     results["decision_done"] = bool(
                         task and task.status == "done" and row and row["phase"] == "accepted")
+                    # Accepting the routing proposal must have enqueued the
+                    # directed work, owned by the proposed agent.
+                    work = conn.execute(
+                        "SELECT * FROM agent_os_orders WHERE work_id LIKE 'directive-%-work'").fetchone()
+                    results["work_enqueued"] = bool(
+                        work and kb.get_task(conn, work["task_id"]) is not None
+                        and work["owning_agent"] == "eugene")
+                    directive = conn.execute(
+                        "SELECT status FROM telegram_directives ORDER BY id DESC").fetchone()
+                    if directive:
+                        results["directive_closed"] = directive["status"] == "closed"
                 finally:
                     conn.close()
         # 7. Monitor channel got read-only fleet lines, never approval buttons.

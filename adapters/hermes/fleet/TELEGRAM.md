@@ -174,6 +174,14 @@ enqueues a routing task attributed to Router. Router proposes one owning agent,
 a priority, and a lane, with reasoning, and returns it as a review card to
 accept. Nothing is assigned or started by the act of speaking.
 
+**Accepting a routing proposal now enqueues the directed work.** The routing
+checkpoint must carry a structured `proposal` object (`owning_agent` from
+`registry/agents.yaml`, `priority` p0-p3, `lane` ecosystem|directive). When TK
+accepts the review card, the directed work is enqueued as its own governed
+task — same directive, same board provenance — owned by the proposed agent,
+and the directive closes. A proposal that is missing, malformed, or names an
+unknown agent enqueues nothing (fail closed) and the reply says so.
+
 **Capture is not execution.** Writing a row and reporting the row is not obeying
 an instruction, which is why the standing rule still holds: free-form Telegram
 text is not an agent prompt and grants no authority. Choosing an owner is

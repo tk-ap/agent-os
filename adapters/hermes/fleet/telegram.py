@@ -108,6 +108,9 @@ def schema(conn):
         CREATE TABLE IF NOT EXISTS backlog_board_map (
             work_id TEXT PRIMARY KEY, task_id TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS routing_proposals (
+            task_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, proposal TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS telegram_signals (
             id INTEGER PRIMARY KEY, ts REAL NOT NULL, scope TEXT NOT NULL,
             polarity TEXT NOT NULL, text TEXT NOT NULL, reported INTEGER NOT NULL DEFAULT 0
@@ -580,6 +583,14 @@ def collect_reviews(conn, state):
             checkpoint = json.loads(record.get("checkpoint_text", "{}"))
         except ValueError:
             pass
+        # A routing task's structured proposal is what enqueues the directed
+        # work when TK accepts. Store it while the checkpoint is in hand so the
+        # accept path never re-parses prose.
+        if row["work_id"].startswith("directive-") and row["work_id"].endswith("-routing"):
+            proposal = checkpoint.get("proposal")
+            if isinstance(proposal, dict):
+                conn.execute("INSERT OR REPLACE INTO routing_proposals(task_id,work_id,proposal) VALUES (?,?,?)",
+                             (task.id, row["work_id"], json.dumps(proposal)))
         # Written for TK, who is not reading this as an engineer. Plain words,
         # the decision first, and the limits stated rather than implied.
         tries = row["attempts"]
@@ -677,6 +688,91 @@ def collect_approval_requests(conn, state):
             (id,event_key,task_id,snapshot,expires,message,scope) VALUES (?,?,?,?,?,?,?)""",
             (secrets.token_urlsafe(12), key, row["task_id"], stamp, time.time()+GRANT_TTL,
              text, request.get("scope") or ""))
+
+
+def enqueue_directed_work(conn, state, routing_row):
+    """Turn an accepted routing proposal into the governed work item it proposed.
+
+    Only a structured proposal enqueues: the owning agent must exist in
+    registry/agents.yaml, the priority must be p0-p3, and the lane must be
+    ecosystem|directive. Anything missing or invalid means nothing is enqueued
+    (fail closed) — TK's accept press never fabricates a work item from prose.
+    Returns (task_id, agent, problem): problem is non-empty when refused.
+    """
+    from .bridge import enqueue
+    stored = conn.execute("SELECT proposal FROM routing_proposals WHERE task_id=?",
+                          (routing_row["task_id"],)).fetchone()
+    if not stored:
+        return None, None, "the routing proposal was not machine-readable"
+    try:
+        proposal = json.loads(stored["proposal"])
+    except ValueError:
+        return None, None, "the routing proposal was not valid JSON"
+    agent = proposal.get("owning_agent")
+    priority = proposal.get("priority")
+    lane = proposal.get("lane")
+    import yaml
+    from .bridge import ROOT as bridge_root
+    known = yaml.safe_load((bridge_root / "registry/agents.yaml").read_text())["agents"]
+    if agent not in known:
+        return None, None, f"proposed agent {short(str(agent), 40)!r} is not in the registry"
+    if priority not in {"p0", "p1", "p2", "p3"}:
+        return None, None, "the proposal has no valid priority"
+    if lane not in {"ecosystem", "directive"}:
+        return None, None, "the proposal has no valid lane"
+    directive_id = routing_row["work_id"].split("-", 1)[1].rsplit("-routing", 1)[0]
+    directive = conn.execute("SELECT * FROM telegram_directives WHERE id=?",
+                             (directive_id,)).fetchone()
+    if not directive:
+        return None, None, "the directive record is missing"
+    problem = {
+        "statement": "Directed work from an accepted routing proposal.",
+        "directive": directive["text"],
+        "captured_as": f"telegram_directives#{directive['id']}",
+        "routing_work_id": routing_row["work_id"],
+        "routing_proposal": proposal,
+    }
+    # Backlog-started directives keep their canonical board provenance; the
+    # mirror row exists because the tick syncs before routing.
+    if directive["backlog_work_id"]:
+        board = conn.execute("SELECT task_id FROM backlog_board_map WHERE work_id=?",
+                             (directive["backlog_work_id"],)).fetchone()
+        problem["origin"] = "autonomous_backlog"
+        problem["backlog_system"] = "hermes-kanban"
+        problem["backlog_work_id"] = directive["backlog_work_id"]
+        problem["board_item_id"] = board[0] if board else None
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    order = {
+        "work_id": f"directive-{directive_id}-work",
+        "routing_source": "registry/product-routing.yaml",
+        "source_product": "agent-os-workforce",
+        "owning_product": "agent-os-workforce",
+        "owning_agent": agent,
+        "workspace": str(ROOT),
+        "problem_or_opportunity": problem,
+        "priority": {"level": priority, "confidence": 1.0},
+        "desired_outcome": {"outcome": "The directed work, scoped by the directive above."},
+        "required_capabilities": ["filesystem"],
+        "constraints": {
+            "bounded": "Execute only the directed work. No publish, deploy, purchase, "
+                       "credential change, or browser action unless the task later "
+                       "requests scoped approval at a boundary.",
+        },
+        "acceptance_criteria": [
+            "Implements the directive's requested outcome in the workspace",
+            "Changes are scoped to the directive; no unrelated modifications",
+            "Honestly reports what was verified and what was not",
+        ],
+        "status": "approved",
+        "created_at": stamp,
+    }
+    try:
+        task_id = enqueue(state, order, authority=f"human-accepted-routing:{routing_row['work_id']}")
+    except (ValueError, OSError) as exc:
+        return None, None, f"enqueue refused: {short(str(exc), 120)}"
+    conn.execute("UPDATE telegram_directives SET status='closed', task_id=? WHERE id=?",
+                 (task_id, directive_id))
+    return task_id, agent, None
 
 
 def record_change(conn, product, kind, revision, summary):
@@ -837,6 +933,12 @@ def route_directives(conn, state, now=None):
                 "registry": "Choose the owner from registry/agents.yaml by `owns` domain, "
                             "minimum sufficient team, applying the agent-vs-skill test.",
                 "lane": "ecosystem for operating-layer work, directive for product work.",
+                "proposal_format": "Write the checkpoint JSON with a 'proposal' object: "
+                                   "{\"owning_agent\": \"<agent id from registry/agents.yaml>\", "
+                                   "\"priority\": \"p0|p1|p2|p3\", \"lane\": \"ecosystem|directive\"}. "
+                                   "When TK accepts the proposal, this object is what enqueues the "
+                                   "directed work — an absent or invalid proposal means nothing is "
+                                   "enqueued automatically.",
             },
             "acceptance_criteria": [
                 "Names one owning agent that exists in registry/agents.yaml",
@@ -1390,7 +1492,7 @@ def perform_publish(order, row, chosen="accept"):
             + (f" {target} goes live in a minute or two." if target else ""))
 
 
-def decide(conn, config, query):
+def decide(conn, config, query, state=None):
     """Only authenticated, unexpired, single-use callbacks can accept a frozen result."""
     from hermes_cli import kanban_db as kb
     message = query.get("message", {})
@@ -1486,6 +1588,20 @@ def decide(conn, config, query):
             # The acceptance stands; only the publish failed. Saying otherwise
             # would leave TK believing work was saved when it was not.
             result = f"Accepted, but saving failed: {short(str(exc), 120)}"
+        # Accepting a routing proposal closes Phase 1: the directed work is
+        # enqueued as its own governed task, same directive, same board
+        # provenance. Fail closed — a proposal that is missing, malformed, or
+        # names an unknown agent enqueues nothing.
+        if (row["work_id"].startswith("directive-") and row["work_id"].endswith("-routing")
+                and state is not None):
+            new_task, agent, problem = enqueue_directed_work(conn, state, row)
+            if new_task:
+                result = (f"Accepted. Directed work enqueued for {short(str(agent), 32)} "
+                          f"({new_task}) — it runs on the next tick under the same "
+                          "inspection and review loop.")
+            else:
+                result = (f"Accepted, but the directed work was NOT enqueued: {problem}. "
+                          "Create the work item manually.")
     else:
         # Feedback and pause both stop further execution. Feedback is distinct
         # input the producer receives, not just a rejection: record it on the
@@ -1545,7 +1661,7 @@ def deliver(conn, config, api):
         conn.execute("UPDATE telegram_cards SET delivery='sent',message_id=? WHERE id=?", (result["message_id"],card["id"]))
 
 
-def handle_update(conn, config, api, update):
+def handle_update(conn, config, api, update, state=None):
     """Act on one Telegram update. Shared by the minute tick and the listener."""
     if "callback_query" in update and str(update["callback_query"].get("data","")).startswith("pub:"):
         # Batch publish. Separate from decide(), which answers a review card: this
@@ -1573,7 +1689,7 @@ def handle_update(conn, config, api, update):
             pass
     elif "callback_query" in update:
         query = update["callback_query"]
-        response = decide(conn,config,query)
+        response = decide(conn,config,query,state)
         try:
             api.call("answerCallbackQuery",callback_query_id=query["id"],text=response[:190],show_alert=True)
         except TelegramError:
@@ -1792,7 +1908,7 @@ def listen(state=DEFAULT_STATE, config_path=CONFIG, api=None, once=False):
                 with lock(Path(state) / "telegram.lock"):
                     for update in updates:
                         config = json.loads(Path(config_path).read_text())  # setup may have changed it
-                        handle_update(conn, config, api, update)
+                        handle_update(conn, config, api, update, state)
                         conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('offset',?)",
                                      (str(update["update_id"] + 1),))
             if once:
@@ -1821,8 +1937,9 @@ def tick(state=DEFAULT_STATE, config_path=CONFIG, api=None):
                 updates = api.call("getUpdates",offset=int(offset[0]) if offset else 0,
                     timeout=0,limit=25,allowed_updates=["callback_query","message","my_chat_member"])
             for update in updates:
-                handle_update(conn, config, api, update)
-                conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('offset',?)", (str(update['update_id']+1),))
+                handle_update(conn, config, api, update, state)
+                conn.execute("INSERT OR REPLACE INTO telegram_meta VALUES ('offset',?)",
+                             (str(update['update_id'] + 1),))
             request_inspection(conn,state)
             read_inspection_verdicts(conn,state)
             run_revisions(conn,state)
