@@ -201,7 +201,28 @@ That specification adds three required controls:
 
 These controls are part of onboarding and autonomous-operation safety, not optional cleanup work.
 
-## 11. Relationship to execution contexts
+## 11. Self-healing reconciliation and Founder Mode
+
+For operational failures, recovery, restart, degraded execution, missing known context, wrong workspace/harness/capability selection, stale task state, or repeated avoidable founder intervention, automatically read and apply:
+
+`docs/proposals/SELF_HEALING_RECONCILIATION_AND_FOUNDER_MODE.md`
+
+The required runtime model is:
+
+`DESIRED STATE → OBSERVE ACTUAL STATE → DIFF → CLASSIFY → REPAIR IF AUTHORIZED → RESUME SAME TASK → VERIFY → RECORD INCIDENT → LEARN`
+
+Key invariants:
+
+- self-healing is a deterministic control-plane capability, not a new persistent agent;
+- recoverable failures must use machine-readable failure classes and versioned repair rules;
+- repair may never widen authority, context release, budget, credentials, or mutable scope;
+- the original task should enter `RECOVERING`/`RESUMING` rather than forcing TK to create a replacement task;
+- repeated recurrence escalates to root-cause work instead of endless repair loops;
+- TK should be interrupted only for authority, unresolved intent, irreversibility, material economics, strategic trade-offs, or required safety/security judgment;
+- successful menial recovery should default to after-the-fact `FYI_RECOVERED`, not a pre-repair founder interruption;
+- track Founder Intervention Rate and distinguish legitimate founder decisions from avoidable system failures.
+
+## 12. Relationship to execution contexts
 
 These guardrails compose with `docs/proposals/EXECUTION_CONTEXT_AND_WORKSPACE_ISOLATION.md`.
 
@@ -209,7 +230,7 @@ A human exploration session may read current objectives, priorities, active work
 
 Durable agent identities may have multiple concurrent task/session instances, but each instance has its own execution context, mutable surfaces, authority, task state, evidence lineage, and effective execution identity.
 
-## 12. Relationship to workforce health
+## 13. Relationship to workforce health
 
 These controls feed `docs/proposals/WORKFORCE_HEALTH_AND_DEGRADATION.md`.
 
@@ -225,9 +246,12 @@ Health should flag, at minimum:
 - excessive candidate/backlog promotion without verified business progress;
 - context release failures or over-broad release;
 - missing/uncomparable agent-instance metadata for performance claims;
-- accumulation of stale active objects or cleanup candidates.
+- accumulation of stale active objects or cleanup candidates;
+- unrecovered incidents or repeated recurrence keys;
+- repair-loop exhaustion or falling repair-rule success;
+- avoidable founder interventions.
 
-## 13. Canonical implementation guidance
+## 14. Canonical implementation guidance
 
 Hermes must reconcile each section against current `main`, open PRs, and live runtime before adding new structures.
 
@@ -239,7 +263,7 @@ For each requirement classify:
 - `MISSING`
 - `DUPLICATE_OF_EXISTING`
 
-Prefer extending existing task, authorization, context-envelope, evidence, routine, backlog/Kanban, instance metadata, and health contracts over creating parallel schemas.
+Prefer extending existing task, authorization, context-envelope, evidence, routine, backlog/Kanban, instance metadata, health, retry, recovery, and incident structures over creating parallel schemas.
 
 ## Minimum acceptance tests
 
@@ -257,6 +281,10 @@ Prefer extending existing task, authorization, context-envelope, evidence, routi
 12. Two concurrent instances of the same durable role retain distinct execution identity and authority/workspace lineage.
 13. Superseded/archived/decommissioned objects do not load as current operating truth.
 14. Hygiene audit flags stale operating objects without destructive mutation by default.
+15. Wrong workspace is detected/repaired and the same governed task resumes without TK intervention.
+16. A recoverable harness/capacity failure uses an approved fallback and records an incident.
+17. Repeated recurrence creates root-cause work rather than looping indefinitely.
+18. Founder Mode distinguishes `FYI_RECOVERED` from a legitimate `DECISION_REQUIRED`/`APPROVAL_REQUIRED` escalation.
 
 ## Non-goals
 
@@ -269,7 +297,10 @@ Do not add:
 - implicit conversion of private human conversations into executable work;
 - broad context sharing solely because a harness is connected;
 - another task identity system solely for instance pinning;
-- destructive cleanup without retention/authority checks.
+- destructive cleanup without retention/authority checks;
+- unconstrained autonomous self-modification;
+- self-granted authorization during recovery;
+- infinite or hidden repair loops.
 
 ## Architecture stop condition
 
