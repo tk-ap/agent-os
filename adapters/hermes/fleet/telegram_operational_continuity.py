@@ -20,6 +20,9 @@ ACTIVE_PHASES = {
     "collision", "verifying", "reconciling",
 }
 ACTIVE_DIRECTIVE_STATES = {"captured", "routing"}
+HUMAN_WAIT_PHASES = {"review", "waiting_approval"}
+HUMAN_WAIT_BUSY_SECONDS = 3600
+TERMINAL_TASK_STATES = {"done", "cancelled"}
 
 
 def _load_backlog(root: Path):
@@ -30,14 +33,75 @@ def _load_backlog(root: Path):
     return backlog_runtime.rank([item for item in items if item.get("status") != "done"])
 
 
+def _has_newer_revision(conn, work_id: str) -> bool:
+    """Return true when a later -rev2 descendant superseded this review order."""
+    return bool(conn.execute(
+        "SELECT 1 FROM agent_os_orders WHERE work_id LIKE ? LIMIT 1",
+        (work_id + "-rev2%",),
+    ).fetchone())
+
+
 def _fleet_busy(conn) -> bool:
+    """Whether meaningful work is actually moving enough to suppress ignition.
+
+    Historical non-terminal rows must not freeze the floor forever. We therefore
+    distinguish an order's Agent OS phase from the underlying Hermes task state:
+
+    - terminal/revoked/expired orders do not count;
+    - a `queued` order whose Hermes task is already `blocked` is not runnable;
+    - superseded reviews do not count;
+    - fresh human-wait states briefly count as busy so we do not immediately pile
+      up decisions, but after one hour they remain open without freezing unrelated
+      already-cleared work;
+    - running/capacity/collision/verification/reconciliation states still count.
+    """
+    now = time.time()
     phases = ",".join("?" for _ in ACTIVE_PHASES)
-    if conn.execute(f"SELECT 1 FROM agent_os_orders WHERE phase IN ({phases}) LIMIT 1",
-                    tuple(sorted(ACTIVE_PHASES))).fetchone():
+    rows = conn.execute(
+        f"""
+        SELECT o.task_id, o.work_id, o.phase, o.revoked, o.expires,
+               t.status AS task_status,
+               COALESCE((SELECT MAX(e.ts) FROM agent_os_events e
+                         WHERE e.task_id=o.task_id), 0) AS last_event
+        FROM agent_os_orders o
+        LEFT JOIN tasks t ON t.id=o.task_id
+        WHERE o.phase IN ({phases})
+        """,
+        tuple(sorted(ACTIVE_PHASES)),
+    ).fetchall()
+
+    for row in rows:
+        if row["revoked"] or row["expires"] <= now:
+            continue
+        task_status = row["task_status"]
+        if task_status in TERMINAL_TASK_STATES:
+            continue
+
+        phase = row["phase"]
+        if phase == "queued" and task_status == "blocked":
+            # Hermes says this card is not currently runnable. Preserve the row
+            # and evidence, but do not let it masquerade as moving work.
+            continue
+
+        if phase in HUMAN_WAIT_PHASES:
+            work_id = row["work_id"] or ""
+            if work_id and _has_newer_revision(conn, work_id):
+                continue
+            last_event = float(row["last_event"] or 0)
+            if last_event and now - last_event > HUMAN_WAIT_BUSY_SECONDS:
+                continue
+
         return True
+
+    # A fresh captured/routing directive is meaningful control-plane motion. An
+    # abandoned historical directive remains inspectable but cannot deadlock the
+    # floor forever.
     states = ",".join("?" for _ in ACTIVE_DIRECTIVE_STATES)
-    return bool(conn.execute(f"SELECT 1 FROM telegram_directives WHERE status IN ({states}) LIMIT 1",
-                             tuple(sorted(ACTIVE_DIRECTIVE_STATES))).fetchone())
+    directive = conn.execute(
+        f"SELECT ts FROM telegram_directives WHERE status IN ({states}) ORDER BY ts DESC LIMIT 1",
+        tuple(sorted(ACTIVE_DIRECTIVE_STATES)),
+    ).fetchone()
+    return bool(directive and now - float(directive["ts"]) <= HUMAN_WAIT_BUSY_SECONDS)
 
 
 def _already_seen(conn, work_id: str) -> bool:
