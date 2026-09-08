@@ -11,6 +11,15 @@ class FleetClockEntrypointTests(unittest.TestCase):
         self.assertIn('"continuity-tick"', source)
         self.assertNotIn(', "tick"])', source)
 
+    def test_continuity_entrypoint_advances_dispatch_and_control_layers(self):
+        cli = (Path(__file__).resolve().parents[1] / "adapters/hermes/fleet_cli.py").read_text()
+        self.assertIn("dispatch_tick(DEFAULT_STATE)", cli)
+        self.assertIn("control_tick(DEFAULT_STATE)", cli)
+        self.assertLess(
+            cli.index("dispatch_tick(DEFAULT_STATE)"),
+            cli.index("control_tick(DEFAULT_STATE)"),
+        )
+
     def test_agent_os_managed_script_can_upgrade(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "clock.py"
