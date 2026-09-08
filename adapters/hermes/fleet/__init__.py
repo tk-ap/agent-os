@@ -11,6 +11,7 @@ from . import telegram_human_monitor as _telegram_human_monitor
 from . import telegram_agent_directory as _telegram_agent_directory
 from . import telegram_agent_directory_hotfix as _telegram_agent_directory_hotfix
 from . import telegram_runtime_recovery as _telegram_runtime_recovery
+from . import telegram_blocker_briefs as _telegram_blocker_briefs
 from . import telegram_operational_continuity as _telegram_operational_continuity
 
 # Explain is presentation only: install a renderer that performs reads without
@@ -48,6 +49,12 @@ _telegram_agent_directory_hotfix.install(telegram)
 # provenance that points at a done mirror and accept commit evidence from
 # registered products (including Agent OS itself).
 _telegram_runtime_recovery.install(telegram)
+
+# Meaningful blockers are operator information, not something TK should infer
+# from silence or raw lifecycle rows. Emit plain-language private briefs that say
+# what stopped, whether AgentOS retries automatically, and exactly what TK needs
+# to do (often: nothing).
+_telegram_blocker_briefs.install(telegram)
 
 # Milchik + Polly operational continuity. The existing no-model fleet clock now
 # has an ignition path: when the fleet is idle it may start at most one backlog
