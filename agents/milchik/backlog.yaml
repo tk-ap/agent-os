@@ -16,6 +16,9 @@
 # consumers that must exclude it (see backlog_top in the Telegram surface).
 # Completed items stay here as history rather than being deleted.
 #
+# Persist dates/timestamps as quoted ISO-8601 strings. Unquoted YAML dates load
+# as datetime.date objects and are not JSON-safe at the Hermes board boundary.
+#
 # Lane is a soft gate (runtime/backlog.py LANE_BONUS). `ecosystem` is backend
 # work on the operating layer itself and drains first; `directive` is product
 # work. Ecosystem carries +30, so any ecosystem item at p1 or above outranks any
@@ -41,7 +44,7 @@
   lane: ecosystem
   status: release_pending
   completed:
-    at: 2026-09-06
+    at: "2026-09-06"
     evidence: "tk-ap/ALVIRA c698105 on codex/interview-intro"
     note: |
       sitemap.xml and robots.txt repointed to alviratech.vercel.app. The
@@ -66,7 +69,7 @@
   lane: ecosystem
   status: done
   completed:
-    at: 2026-09-06
+    at: "2026-09-06"
     evidence: "agent-os 050545c, aa9ffa9, 022fb30"
     note: |
       Runtime is complete and the monitor channel is still UNPAIRED —
