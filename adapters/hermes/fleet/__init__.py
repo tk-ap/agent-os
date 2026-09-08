@@ -12,6 +12,7 @@ from . import telegram_agent_directory as _telegram_agent_directory
 from . import telegram_agent_directory_hotfix as _telegram_agent_directory_hotfix
 from . import telegram_runtime_recovery as _telegram_runtime_recovery
 from . import telegram_blocker_briefs as _telegram_blocker_briefs
+from . import telegram_blocker_brief_migration as _telegram_blocker_brief_migration
 from . import telegram_operational_continuity as _telegram_operational_continuity
 
 # Explain is presentation only: install a renderer that performs reads without
@@ -51,10 +52,15 @@ _telegram_agent_directory_hotfix.install(telegram)
 _telegram_runtime_recovery.install(telegram)
 
 # Meaningful blockers are operator information, not something TK should infer
-# from silence or raw lifecycle rows. Emit plain-language private briefs that say
-# what stopped, whether AgentOS retries automatically, and exactly what TK needs
+# from silence or raw lifecycle rows. Emit conversational private briefs that say
+# what stopped, what happens next, safe alternatives, and exactly what TK needs
 # to do (often: nothing).
 _telegram_blocker_briefs.install(telegram)
+
+# Existing blocker cards use idempotency keys from the older terse template.
+# Emit one upgraded v2 card for currently active blockers so TK does not have to
+# wait for another retry/state transition to receive the conversational version.
+_telegram_blocker_brief_migration.install(telegram)
 
 # Milchik + Polly operational continuity. The existing no-model fleet clock now
 # has an ignition path: when the fleet is idle it may start at most one backlog
