@@ -1,0 +1,28 @@
+{
+  "_comment": "Bounded source manifest for the ASHWOOD workspace workstream projection publisher (agent-os issue #54). This is projection CONFIG, not an execution database: it lists which canonical AgentOS source objects to project and the stable human-facing descriptors for each. Volatile execution state (title, canonical_url, status) is derived live from the source object at publish time, never copied here. Do not record task progress, assignments, or review lifecycle in this file.",
+  "source_system": "agent-os",
+  "sources": [
+    {
+      "issue": 51,
+      "repo": "tk-ap/agent-os",
+      "product": "ledgato",
+      "owner": "@router:verification",
+      "goal_ids": ["ownership"],
+      "stage": "independent-verification",
+      "summary": "Ledgato external-user readiness / technical proof.",
+      "next_gate": "Independent reviewer re-runs the live enforcement suite against the disposable lab and records a VERIFIED or BLOCKED verdict on github_lab_merge. Remaining real proof, not stale issue text.",
+      "confidence": 0.6
+    },
+    {
+      "issue": 53,
+      "repo": "tk-ap/agent-os",
+      "product": "ledgato",
+      "owner": "scout",
+      "goal_ids": ["ownership"],
+      "stage": "outreach-setup",
+      "summary": "Scout-owned Ledgato design-partner outreach pipeline.",
+      "next_gate": "First reviewed outreach batch to TK, then discovery/pilot progression.",
+      "confidence": 0.5
+    }
+  ]
+}
