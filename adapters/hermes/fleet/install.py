@@ -6,10 +6,40 @@ import sys
 from .bridge import ROOT, DEFAULT_STATE, connect
 
 
+MANAGED_PREFIX = "# Installed by Agent OS;"
+
+
 def _install_script(path: Path, source: str) -> None:
-    if path.exists() and path.read_text() != source:
-        raise RuntimeError(f"Existing script differs: {path}; inspect before replacing")
+    """Install or upgrade a script owned by Agent OS without touching user files."""
+    if path.exists():
+        existing = path.read_text()
+        if existing == source:
+            return
+        if not existing.startswith(MANAGED_PREFIX):
+            raise RuntimeError(f"Existing script differs and is not Agent OS managed: {path}; inspect before replacing")
     path.write_text(source)
+
+
+def _fleet_script_source() -> str:
+    return "\n".join([
+        '# Installed by Agent OS; remove the matching cron job to disable.',
+        'import os',
+        'import sys',
+        f'os.execv({sys.executable!r}, [{sys.executable!r},',
+        f'    {str(ROOT / "adapters/hermes/fleet_cli.py")!r}, "continuity-tick"])',
+        '',
+    ])
+
+
+def _update_script_source() -> str:
+    return "\n".join([
+        '# Installed by Agent OS; conservative fast-forward updater.',
+        'import os',
+        'import sys',
+        f'os.execv({sys.executable!r}, [{sys.executable!r}, "-m",',
+        '    "adapters.hermes.fleet.auto_update"])',
+        '',
+    ])
 
 
 def _ensure_job(create_job, list_jobs, *, name: str, script: Path, schedule: str):
@@ -39,26 +69,10 @@ def install():
     scripts.mkdir(exist_ok=True)
 
     fleet_target = scripts / "agent_os_fleet_tick.py"
-    fleet_source = "\n".join([
-        '# Installed by Agent OS; remove the matching cron job to disable.',
-        'import os',
-        'import sys',
-        f'os.execv({sys.executable!r}, [{sys.executable!r},',
-        f'    {str(ROOT / "adapters/hermes/fleet_cli.py")!r}, "tick"])',
-        '',
-    ])
-    _install_script(fleet_target, fleet_source)
+    _install_script(fleet_target, _fleet_script_source())
 
     update_target = scripts / "agent_os_safe_update.py"
-    update_source = "\n".join([
-        '# Installed by Agent OS; conservative fast-forward updater.',
-        'import os',
-        'import sys',
-        f'os.execv({sys.executable!r}, [{sys.executable!r}, "-m",',
-        '    "adapters.hermes.fleet.auto_update"])',
-        '',
-    ])
-    _install_script(update_target, update_source)
+    _install_script(update_target, _update_script_source())
 
     conn = connect(DEFAULT_STATE)
     conn.close()
@@ -87,6 +101,7 @@ def install():
                 "script": str(fleet_target),
                 "schedule": fleet_job.get("schedule"),
                 "no_agent": True,
+                "behavior": "run governed Telegram/continuity tick; ignite at most one already-cleared backlog item when idle",
             },
             {
                 "job_id": update_job["id"],
