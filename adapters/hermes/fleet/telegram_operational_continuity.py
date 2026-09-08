@@ -1,6 +1,6 @@
 """Low-cost autonomous ignition for the Milchik + Polly continuity pair.
 
-Runs inside the existing Telegram/fleet tick. It does not decide new work and it
+Runs inside the existing fleet/Telegram tick. It does not decide new work and it
 does not widen authority. When the fleet is genuinely idle, it may turn the
 highest-ranked backlog item that is already human-origin or explicitly approved
 into the same governed routing flow TK starts manually with /next.
@@ -10,7 +10,6 @@ work. External release mutation remains subject to its existing scoped grant.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import secrets
 import time
@@ -138,7 +137,7 @@ def ignite(conn, root: Path) -> dict:
 
 
 def install(telegram):
-    """Wrap the existing tick; all normal Telegram/fleet semantics remain intact."""
+    """Wrap the existing tick; control progress does not depend on message delivery."""
     base_tick = telegram.tick
 
     def tick(state=None, config_path=None, api=None):
@@ -148,10 +147,13 @@ def install(telegram):
         conn = connect(actual_state)
         try:
             telegram.schema(conn)
-            # Board mirror first: route_directives in the normal tick will then
-            # have canonical provenance for any directive inserted here.
+            # Canonical board provenance must exist before the routing work item
+            # is built. Unlike notification delivery, this part must work even
+            # when Telegram is unavailable or disabled.
             telegram.sync_backlog_to_board(conn)
             continuity = ignite(conn, ROOT)
+            if continuity.get("status") == "started":
+                telegram.route_directives(conn, actual_state)
         finally:
             conn.close()
 
