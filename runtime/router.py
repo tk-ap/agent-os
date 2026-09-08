@@ -27,7 +27,19 @@ def _load_agents():
     return agents
 
 
-def _owner_for(task: Task):
+def _independent_verifier_for(task: Task, agents: dict):
+    ctx = task.verification_context or {}
+    ineligible = set(ctx.get("authors", [])) | set(ctx.get("remediators", [])) | set(ctx.get("material_participants", []))
+    candidates = ctx.get("candidate_verifiers") or ["w-dog", "rook"]
+    for candidate in candidates:
+        if candidate in agents and candidate not in ineligible:
+            return candidate
+    raise RuntimeError("No eligible Independent Verifier is available; verification must remain BLOCKED")
+
+
+def _owner_for(task: Task, agents: dict):
+    if task.task_class == "verification":
+        return _independent_verifier_for(task, agents)
     if task.task_class == "implementation":
         return "eugene"
     if task.task_class == "inspection":
@@ -37,10 +49,18 @@ def _owner_for(task: Task):
 
 def route_task(task: Task):
     agents = _load_agents()
-    agent = _owner_for(task)
+    agent = _owner_for(task, agents)
     if agent not in agents:
         raise RuntimeError(f"Agent '{agent}' is not present in registry/agents.yaml")
     task.agent = agent
+    if task.task_class == "verification":
+        return {
+            "task": task.to_dict(),
+            "agent": agent,
+            "role": "Independent Verifier",
+            "ownership": ["independent-verification", "provider-readback", "attestation"],
+            "mode": "INDEPENDENT VERIFICATION",
+        }
     return {
         "task": task.to_dict(),
         "agent": agent,

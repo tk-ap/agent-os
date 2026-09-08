@@ -25,6 +25,10 @@ def _status(task):
     verification = task.get("verification", {})
     if verification.get("status") == "VERIFIED":
         return "COMPLETED"
+    if verification.get("status") == "NOT VERIFIED":
+        return "FAILED"
+    if verification.get("status") == "BLOCKED":
+        return "BLOCKED"
     if execution.get("status") == "FAILED":
         return "FAILED"
     if execution.get("status") == "EXECUTED":
@@ -36,15 +40,33 @@ def _status(task):
     return "RESOLVING"
 
 
-def _prepare(request: str, product: str | None = None, environment: str | None = None):
+def _prepare(
+    request: str,
+    product: str | None = None,
+    environment: str | None = None,
+    verification_context: dict | None = None,
+):
     task = normalize(request)
+    if verification_context:
+        task.verification_context = dict(verification_context)
     resolved = resolve_product(request, product)
     if resolved.get("status") == "RESOLVED":
         task.product = resolved["product_key"]
     routing = route_task(task)
     skills = resolve_skills(task)
     authorization = authorize(task)
-    if skills["status"] == "BLOCKED":
+
+    if task.task_class == "verification":
+        # The provider-backed runner supplies evidence through
+        # verification_context. AgentOS evaluates independence and sufficiency;
+        # it does not fabricate a live rerun or use the normal implementation
+        # executor as a substitute.
+        task.execution = {
+            "status": "EXECUTED",
+            "mode": "independent-verification",
+            "provider_runner_completed": bool(task.verification_context.get("fresh_live_rerun")),
+        }
+    elif skills["status"] == "BLOCKED":
         task.execution = {"status": "BLOCKED", "reason": "No admitted skills were available for this task."}
     elif authorization["status"] != "AUTHORIZED":
         task.execution = {"status": "BLOCKED", "reason": authorization["reason"]}
@@ -53,7 +75,7 @@ def _prepare(request: str, product: str | None = None, environment: str | None =
     else:
         execute(task, resolved)
     verify(task)
-    evidence = record(task)
+    record(task)
     payload = task.to_dict()
     payload.update({"product_resolution": resolved, "routing": routing, "skills_resolution": skills, "authorization_result": authorization})
     if environment:
@@ -67,7 +89,6 @@ def _authorize(task: dict):
     if task.get("task_class") != "implementation":
         task["authorization"] = "AUTHORIZED"
         return task
-    # Authorization changes state; mutation adapters remain explicitly bounded.
     task["authorization"] = "AUTHORIZED"
     task["execution"] = {"status": "BLOCKED", "reason": "Implementation authorization granted, but no mutation adapter is enabled in this runtime."}
     task["verification"] = {"status": "FAILED", "reason": "No implementation adapter is enabled."}
@@ -120,7 +141,15 @@ class Handler(BaseHTTPRequestHandler):
                 request = body.get("request")
                 if not isinstance(request, str) or not request.strip():
                     return self._send(400, {"error": "request is required"})
-                payload = _prepare(request, body.get("product"), body.get("environment"))
+                verification_context = body.get("verification_context")
+                if verification_context is not None and not isinstance(verification_context, dict):
+                    return self._send(400, {"error": "verification_context must be an object"})
+                payload = _prepare(
+                    request,
+                    body.get("product"),
+                    body.get("environment"),
+                    verification_context,
+                )
                 status = _status(payload)
                 task_id = store.create(payload, status)
                 payload["id"] = task_id

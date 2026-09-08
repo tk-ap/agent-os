@@ -7,6 +7,7 @@ SKILLS_FILE = ROOT / "registry" / "skills.yaml"
 
 TASK_SKILLS = {
     "inspection": ["end-to-end-verification", "audit-evidence-ledger"],
+    "verification": ["end-to-end-verification", "audit-evidence-ledger"],
     "implementation": ["task-envelope", "end-to-end-verification"],
     "general": ["task-envelope"],
 }
