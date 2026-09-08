@@ -1,4 +1,5 @@
 """Run with Hermes's Python environment; usable from any working directory."""
+import json
 import os
 from pathlib import Path
 import sys
@@ -12,11 +13,24 @@ sys.path.insert(0, str(HERMES))
 sys.path.insert(0, str(ROOT))
 os.environ["PYTHONPATH"] = os.pathsep.join([str(ROOT), str(HERMES)])
 
-if len(sys.argv) > 1 and sys.argv[1] == "telegram":
-    sys.argv.pop(1)
-    from adapters.hermes.fleet.telegram import main
-else:
-    from adapters.hermes.fleet.bridge import main
+
+def main():
+    # The autonomous host clock must enter through the patched Telegram tick,
+    # because that is where Milchik + Polly operational continuity is installed.
+    # Calling bridge.main("tick") directly dispatches existing orders but skips
+    # backlog ignition entirely.
+    if len(sys.argv) > 1 and sys.argv[1] == "continuity-tick":
+        from adapters.hermes.fleet.telegram import tick
+        print(json.dumps(tick()))
+        return
+
+    if len(sys.argv) > 1 and sys.argv[1] == "telegram":
+        sys.argv.pop(1)
+        from adapters.hermes.fleet.telegram import main as selected_main
+    else:
+        from adapters.hermes.fleet.bridge import main as selected_main
+    selected_main()
+
 
 if __name__ == "__main__":
     main()
