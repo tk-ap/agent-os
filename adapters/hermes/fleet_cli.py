@@ -15,13 +15,18 @@ os.environ["PYTHONPATH"] = os.pathsep.join([str(ROOT), str(HERMES)])
 
 
 def main():
-    # The autonomous host clock must enter through the patched Telegram tick,
-    # because that is where Milchik + Polly operational continuity is installed.
-    # Calling bridge.main("tick") directly dispatches existing orders but skips
-    # backlog ignition entirely.
+    # The autonomous host clock is composite: first advance any already-enqueued
+    # governed work through Hermes, then enter the patched Telegram/control tick
+    # where Milchik + Polly continuity, routing, review, and operator delivery live.
+    # Running only bridge.tick skips backlog ignition; running only telegram.tick
+    # would stop actual worker dispatch.
     if len(sys.argv) > 1 and sys.argv[1] == "continuity-tick":
-        from adapters.hermes.fleet.telegram import tick
-        print(json.dumps(tick()))
+        from adapters.hermes.fleet.bridge import DEFAULT_STATE, tick as dispatch_tick
+        from adapters.hermes.fleet.telegram import tick as control_tick
+
+        dispatch = dispatch_tick(DEFAULT_STATE)
+        control = control_tick(DEFAULT_STATE)
+        print(json.dumps({"dispatch": dispatch, "control": control}))
         return
 
     if len(sys.argv) > 1 and sys.argv[1] == "telegram":
