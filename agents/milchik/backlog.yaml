@@ -5,8 +5,11 @@
 # state; a human-triggered item is pre-authorized to queue by its source, while
 # agent/routine items still require explicit approval before enqueue.
 #
-# Status: proposed -> approved -> queued (fleet) -> done. Ranking decides
-# attention; approval decides execution.
+# Status: proposed -> approved -> queued (fleet) -> release_pending -> done.
+# Ranking decides attention; approval decides execution. `release_pending` means
+# implementation evidence exists but the intended live state is not terminal;
+# Polly owns persistence/recovery from that boundary. `done` requires terminal
+# evidence, not merely a commit, merge, successful command, or preview.
 #
 # `done` is terminal and carries evidence. runtime/backlog.py deliberately
 # scores on priority and confidence alone, so a done item still ranks — it is
@@ -36,7 +39,7 @@
 - work_id: alvira-discoverability-sitemap
   source: agent
   lane: ecosystem
-  status: done
+  status: release_pending
   completed:
     at: 2026-09-06
     evidence: "tk-ap/ALVIRA c698105 on codex/interview-intro"
@@ -54,8 +57,9 @@
     class in discoverability-audit.md §12.
   desired_outcome: sitemap and robots.txt repointed to the live domain in tk-ap/ALVIRA
   notes: |
-    Cross-product write: Agent OS may propose-handoff only. Worth clearing before
-    the first scheduled audit run so it is not dominated by one known defect.
+    Cross-product write: Agent OS may propose-handoff only. Implementation is
+    complete, but release authority/live verification are unresolved. Polly keeps
+    this open rather than allowing a commit-only `done` state.
 
 - work_id: milchik-two-chat-runtime
   source: human

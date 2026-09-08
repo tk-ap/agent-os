@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-os.local/contracts/release-recovery.schema.json",
+  "title": "Agent OS Release Recovery",
+  "description": "Durable state for already-approved release work that must persist across temporary blockers until verified live state or another explicit terminal outcome.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "recovery_id",
+    "work_id",
+    "product",
+    "repository",
+    "target_environment",
+    "action",
+    "authority",
+    "state",
+    "retry_policy",
+    "availability_checks",
+    "mutation_attempts",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "recovery_id": {"type": "string", "minLength": 1},
+    "work_id": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "product": {"type": "string", "minLength": 1},
+    "repository": {"type": "string", "minLength": 1},
+    "target_environment": {"type": "string", "minLength": 1},
+    "live_url": {"type": "string", "format": "uri"},
+    "expected_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"enum": ["commit", "artifact", "deployment", "release", "other"]},
+        "id": {"type": "string", "minLength": 1},
+        "digest": {"type": "string", "minLength": 1}
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "scope"],
+      "properties": {
+        "kind": {"enum": ["push", "merge", "deploy", "promote", "publish", "release", "other"]},
+        "target": {"type": "string", "minLength": 1},
+        "scope": {"type": "string", "minLength": 1},
+        "idempotency_key": {"type": "string", "minLength": 1}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference", "status"],
+      "properties": {
+        "reference": {"type": "string", "minLength": 1},
+        "status": {"enum": ["valid", "expired", "revoked", "unresolved"]},
+        "expires_at": {"type": "string", "format": "date-time"},
+        "checked_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "state": {
+      "enum": [
+        "ready",
+        "checking",
+        "waiting_availability",
+        "executing",
+        "reconciling",
+        "verifying",
+        "live_verified",
+        "superseded",
+        "cancelled",
+        "human_required"
+      ]
+    },
+    "blocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "reason"],
+      "properties": {
+        "class": {"enum": ["rate_limit", "provider_outage", "capacity", "ci_transient", "deployment_quota", "ambiguous_result", "authorization", "configuration", "conflict", "other"]},
+        "reason": {"type": "string", "minLength": 1},
+        "evidence": {"type": "array", "items": {"type": "object"}},
+        "first_seen_at": {"type": "string", "format": "date-time"},
+        "last_seen_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "retry_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_mutation_attempts", "max_elapsed_seconds"],
+      "properties": {
+        "max_mutation_attempts": {"type": "integer", "minimum": 1, "maximum": 50},
+        "max_elapsed_seconds": {"type": "integer", "minimum": 60},
+        "provider_retry_at": {"type": "string", "format": "date-time"},
+        "next_check_at": {"type": "string", "format": "date-time"},
+        "backoff_seconds": {"type": "integer", "minimum": 1}
+      }
+    },
+    "availability_checks": {"type": "integer", "minimum": 0},
+    "mutation_attempts": {"type": "integer", "minimum": 0},
+    "last_reconciliation": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "owner": {"type": "string", "minLength": 1},
+        "status": {"enum": ["not_started", "pending", "verified", "partially_verified", "failed", "blocked"]},
+        "checked_at": {"type": "string", "format": "date-time"},
+        "evidence": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "notify": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "owner": {"type": "string", "minLength": 1},
+        "channel": {"type": "string", "minLength": 1},
+        "last_notified_state": {"type": "string"},
+        "last_notified_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "terminal_reason": {"type": "string"},
+    "terminal_evidence": {"type": "array", "items": {"type": "object"}},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  }
+}

@@ -39,7 +39,6 @@ def _display_problem(order, work_id, limit=360):
     if directive:
         if len(directive) <= limit:
             return directive, False
-        # Prefer a sentence boundary so the monitor does not look accidentally cut off.
         candidate = directive[:limit]
         boundary = max(candidate.rfind(". "), candidate.rfind("? "), candidate.rfind("! "))
         if boundary >= 120:
@@ -59,7 +58,6 @@ def _outcome_text(order, limit=220):
             if outcome.get(key):
                 text = _clean(outcome[key])
                 return text if len(text) <= limit else text[: limit - 2].rstrip() + " …"
-        # Keep this legible when the contract uses a product-specific object.
         pieces = []
         for key, value in outcome.items():
             if isinstance(value, (str, int, float, bool)):
@@ -132,7 +130,7 @@ def install(telegram):
 
         for task_id, group in by_task.items():
             row_ = conn.execute(
-                "SELECT work_id,owning_agent,payload,phase FROM agent_os_orders WHERE task_id=?",
+                "SELECT work_id,owning_agent,payload,phase,next_at FROM agent_os_orders WHERE task_id=?",
                 (task_id,),
             ).fetchone()
             if not row_:
@@ -152,6 +150,16 @@ def install(telegram):
                     f"**Problem**\n{problem}\n\n"
                     "The agent reached a protected action and stopped before crossing that boundary. "
                     "Check your private Milchik chat for the approval request.\n\n"
+                    f"{_context_integrity(order, shortened)}"
+                )
+            elif "waiting_capacity" in phases or row_["phase"] == "waiting_capacity":
+                retry = time.ctime(row_["next_at"]) if row_["next_at"] else "the next fleet availability check"
+                text = (
+                    "**Polly — temporary capacity block; work stays owned**\n\n"
+                    f"**Work**\n{problem}\n\n"
+                    f"{agent} hit a temporary harness/provider availability limit. "
+                    f"The same approved task is parked and will be reconsidered at **{retry}**. "
+                    "No new approval is needed unless the requested action or authority scope changes.\n\n"
                     f"{_context_integrity(order, shortened)}"
                 )
             elif "start" in kinds or "claim" in kinds:

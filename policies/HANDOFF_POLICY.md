@@ -65,6 +65,23 @@ When a handoff creates or changes recurring work, compose with `skills/owned/rec
 
 A scheduler is an execution mechanism, not an authority source.
 
+## Operational Continuity — Milchik + Polly
+
+Milchik and Polly form the operational continuity pair. Their purpose is meaningful forward motion, not agent activity for its own sake.
+
+- **Milchik owns ignition and attention.** When the fleet is idle, he may advance at most one highest-ranked backlog item that is already human-origin or explicitly `approved` into the normal governed routing flow. He may not start proposals merely because the queue is empty.
+- **Polly owns persistence after execution/release interruption.** When already-approved work reaches a transient capacity, CI, source-control, provider, or deployment blocker, or is implemented but not yet at a terminal live state, hand it to Polly with the original authority lineage intact.
+- **Neither converts state into authority.** Priority is not authority; persistence is not authority; a scheduler is not authority.
+- **One item at a time by default.** Autonomous ignition should not create a self-generated work flood. If meaningful work is already running, under review, awaiting approval, waiting capacity, or reconciling, Milchik does not start another item merely to look busy.
+- **No silent commit-only completion.** If evidence says a change is committed/merged but not deployed/live, the item stays open (for example `release_pending`) and is eligible for Polly's release-persistence handling.
+- **Verification stays independent.** Polly may execute/retry an already-authorized release action but may not provide the final live verification for her own mutation; W Dog or another applicable independent verifier closes the evidence loop.
+
+The operational cycle is:
+
+`Milchik sees/ranks cleared work → governed routing/execution → transient/release boundary → Polly persists/reconciles/resumes → independent live verification → Polly records terminal release state → Milchik reports meaningful progress and selects the next cleared move`
+
+The current Hermes fleet tick is an implementation clock for this loop. Its existence does not make Hermes a conceptual dependency of Agent OS; another host adapter may implement the same contract later.
+
 ## Portable Cross-Product Contracts
 
 Use portable contracts when work crosses a product, workspace, or execution boundary. The contract makes the handoff explicit; it does not authorize the receiver to ignore local policy.
@@ -73,6 +90,7 @@ Use portable contracts when work crosses a product, workspace, or execution boun
 - `contracts/capability-manifest.schema.json` — use when the receiving workflow needs a machine-readable statement of the minimum agents, skills, tools, resources, and harness candidates required.
 - `contracts/context-envelope.schema.json` — use when ALVIRA-derived context must cross into a workflow. Preserve provenance and least-privilege use; ALVIRA remains the context-intelligence source.
 - `contracts/authorization-request.schema.json` — use before governed external action when authorization intelligence is required. Agent Control owns that decision layer where integrated.
+- `contracts/release-recovery.schema.json` — use when already-approved work must persist across a transient release blocker or implemented work remains short of verified live state. The record preserves exact action scope, authority, retry/reconciliation state, and terminal evidence.
 - `contracts/outcome-event.schema.json` — use after bounded execution to return status, artifacts, verification, authority evidence, cost, and measured outcome to the appropriate evidence/portfolio loop.
 
 LEDGATo may receive or produce governance/enforcement evidence when the work intersects its defined scope. Do not route generic authorization decisions to LEDGATo merely because an action is sensitive.
@@ -95,10 +113,14 @@ Local `.agent-os/product.yaml` and `.agent-os/integration-surface.yaml` files ma
 - Designer → Scout: experience hypothesis needs customer validation.
 - Eugene → Designer: technical constraints materially affect experience.
 - Eugene → Bill: technical direction is ready to operationalize.
+- Eugene/Bill → Polly: approved release work is interrupted by transient external capacity or remains short of live state.
 - Bill → Eugene: execution exposes technical blocker.
 - Bill → W Dog: execution needs systemic verification/recurrence prevention.
 - Bill → Rook: recurring/external work needs permission or failure-mode review.
 - Bill → Ledger: recurring/execution work has material cost or budget exposure.
+- Milchik → Polly: cleared work is implemented/stalled at the release boundary and needs durable continuation.
+- Polly → W Dog: release mutation completed and needs independent live-state verification.
+- Polly → Milchik: meaningful blocker/recovery/terminal-state evidence changes the operational picture.
 - W Dog → Eugene: systemic issue has technical root/remediation.
 - W Dog → Bill: systemic issue needs operational closure.
 - Rook → Eugene: adversarial finding requires technical mitigation.
@@ -120,12 +142,15 @@ Local `.agent-os/product.yaml` and `.agent-os/integration-surface.yaml` files ma
 8. Rook attacks material risk, abuse, permissions, and irreversibility.
 9. Router/Bill convert accepted direction into a task envelope and, when useful, a `work-item` plus `capability-manifest`; Bill defines a recurring-work contract when repetition is required.
 10. Request ALVIRA context and/or Agent Control authorization only when the work actually needs those decision layers.
-11. The selected harness executes bounded work.
-12. The producer runs applicable quality railguards before handoff or release review.
-13. W Dog verifies systemic closure, propagation, recurrence prevention, and material routine verification when applicable.
-14. Return an `outcome-event` or equivalent evidence to the relevant portfolio/evidence loop.
-15. Steward reviews outcome versus KPI and chooses keep / accelerate / change / stop.
-16. Router coordinates and synthesizes throughout without replacing domain ownership.
+11. Milchik's continuity pulse may ignite one already-cleared backlog item when the fleet is otherwise idle; it never approves a proposal.
+12. The selected harness executes bounded work.
+13. The producer runs applicable quality railguards before handoff or release review.
+14. W Dog verifies implementation/systemic closure where applicable.
+15. If the accepted outcome requires an external release and is not yet verified live, hand off to Polly with a `release-recovery` record. Polly persists/reconciles/retries only within existing scoped authority.
+16. Independent verification proves the intended live state; only then may the release recovery reach `live_verified`.
+17. Return an `outcome-event` or equivalent evidence to the relevant portfolio/evidence loop; Polly reports release state to Milchik.
+18. Steward reviews outcome versus KPI and chooses keep / accelerate / change / stop.
+19. Router coordinates and synthesizes throughout without replacing domain ownership.
 
 Skip any agent, product, contract, or review loop whose perspective or data would not materially improve the decision.
 
@@ -135,4 +160,4 @@ Do not force consensus. Identify the disputed premise, decision owner, missing e
 Repeated disagreement without new evidence is a loop-termination condition, not a reason to continue cycling agents.
 
 ## Anti-Patterns
-Do not send every task to every agent; duplicate analysis without purpose; use Router as a domain expert; use Steward as a universal executor or universal ecosystem owner; let skills redefine ownership; create a new persistent agent when an existing owner plus skill is sufficient; dynamically activate persistent agents without human approval; let Zoie decide technical truth; let Eugene decide market demand; let Bill silently change architecture; let Designer infer customer demand without evidence when evidence is obtainable; let Ledger optimize only for cost; let Rook become a blanket blocker; let W Dog become the default implementer; let producer/inspector loops run without acceptance and termination conditions; let anti-slop review become a universal aesthetic or an excuse for revision churn; treat a recurring schedule as permission to expand scope; create a second product-role registry; treat Agent OS / Workforce as a standalone public product; treat ALVIRA Bridge as a separate public product; or assign generic authorization intelligence to LEDGATo.
+Do not send every task to every agent; duplicate analysis without purpose; use Router as a domain expert; use Steward as a universal executor or universal ecosystem owner; let skills redefine ownership; create a new persistent agent when an existing owner plus skill is sufficient; dynamically activate persistent agents without human approval; let Zoie decide technical truth; let Eugene decide market demand; let Bill silently change architecture; let Designer infer customer demand without evidence when evidence is obtainable; let Ledger optimize only for cost; let Rook become a blanket blocker; let W Dog become the default implementer; let Milchik create work just to keep the fleet busy; let Polly turn retry persistence into blanket deploy authority; let producer/inspector loops run without acceptance and termination conditions; let anti-slop review become a universal aesthetic or an excuse for revision churn; treat a recurring schedule as permission to expand scope; call committed/merged work done when the intended live state is still unverified; create a second product-role registry; treat Agent OS / Workforce as a standalone public product; treat ALVIRA Bridge as a separate public product; or assign generic authorization intelligence to LEDGATo.

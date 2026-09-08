@@ -1,4 +1,4 @@
-version: 0.1.0
+version: 0.1.1
 adapter: hermes
 layer: scheduler-binding
 mode: declarative-not-applied
@@ -101,6 +101,9 @@ limitations:
     terms that a run must observe; nothing in this adapter measures or enforces
     them today. Until a run records measured cost in its evidence file, the caps
     are checked by reading those files, not automatically.
-  - No notification channel exists on this host. Mr. Milchik is unconfigured, so
-    a suspension or cap breach is discovered by inspection, not delivery.
-  - The builtin ticker only fires while hermes-gateway.service is running.
+  - Milchik Telegram/fleet delivery exists, but these product routines do not yet
+    emit dedicated routine suspension, anomaly, or cap-breach events into that
+    channel. Routine-specific notification delivery remains unimplemented.
+  - The builtin ticker only fires while hermes-gateway.service is running. The
+    separate fleet fallback timer protects the Agent OS fleet tick when installed;
+    it does not automatically make these un-applied product routine jobs active.

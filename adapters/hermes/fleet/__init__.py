@@ -10,6 +10,7 @@ from . import telegram_human_readonly as _telegram_human_readonly
 from . import telegram_human_monitor as _telegram_human_monitor
 from . import telegram_agent_directory as _telegram_agent_directory
 from . import telegram_agent_directory_hotfix as _telegram_agent_directory_hotfix
+from . import telegram_operational_continuity as _telegram_operational_continuity
 
 # Explain is presentation only: install a renderer that performs reads without
 # persisting routing proposals or changing any task/approval state. The
@@ -40,6 +41,13 @@ _telegram_agent_directory.install(telegram)
 # reply-keyboard text such as `Agent directory` and `Status` is intercepted
 # before the legacy directive-only handler sees it.
 _telegram_agent_directory_hotfix.install(telegram)
+
+# Milchik + Polly operational continuity. The existing no-model fleet clock now
+# has an ignition path: when the fleet is idle it may start at most one backlog
+# item that is already human-origin or explicitly approved, using the exact same
+# governed routing path as /next. Release-pending work is surfaced to Polly and
+# remains open until scoped release authority + live verification exist.
+_telegram_operational_continuity.install(telegram)
 
 # Any existing `from adapters.hermes.fleet import telegram` or
 # `from adapters.hermes.fleet.telegram import ...` call now receives the

@@ -40,7 +40,7 @@ Promotion from `REVIEWED` to `ACTIVE` is a human decision by TK. Demotion to `SU
 
 **Contract status and bindability are different axes.** All three contracts are complete and reviewed. Only the audit routine has a trigger source that exists on this host, so only it can be bound to a scheduler. `runtime/evidence.py` returns an in-memory evidence dict per task run; it persists no queryable ledger and has no `visibility` field, so nothing is classified `public-candidate` — which is what both ASHWOOD publishing routines trigger on. Each routine's §3 carries the options.
 
-**Scheduler binding:** `adapters/hermes/routines/`. Defined, not applied.
+**Scheduler binding:** `adapters/hermes/routines/`. Defined, not applied for the product routines listed above. The separate Hermes fleet clock is implemented and drives Agent OS fleet/Telegram operational state; do not confuse that with these un-applied product routine bindings.
 
 **Portfolio breaker: $75/month across all routines suspends all three**, not only the routine that exceeded its own cap. A single routine can fail loudly inside its own cap while the aggregate is what signals something is wrong.
 
@@ -57,7 +57,7 @@ Settled 2026-09-06:
 ## Still open
 
 - **Trigger sources for both publishing routines.** The blocker, and the reason neither can go past `REVIEWED`. Journal has an interim option (commit-derived candidates); dispatch has none and should not have one invented.
-- **No routine has run.** Every cost figure is a projection, and turn count — the term that dominates it — is the least certain input.
-- **No notification channel.** Escalations, suspensions, and cap breaches have nowhere to go: Mr. Milchik is unconfigured on this host. A suspended routine is currently found by inspection, not delivery. `BACKLOG.md`.
+- **No product routine has run.** Every cost figure is a projection, and turn count — the term that dominates it — is the least certain input.
+- **No routine-specific notification binding.** Milchik's Telegram/fleet channel exists, but routine suspension/cap/anomaly events are not yet wired into an action-specific delivery contract. Do not describe this as “Milchik unconfigured”; the missing layer is routine-event delivery.
 - **Caps are contract terms, not enforcement.** Nothing measures or enforces dollar caps today; they are checked by reading evidence records.
 - **No machine-readable `routine` contract.** `contracts/v0/` has `task`, `workflow`, `harness`, `host`, and `evidence`, but no `routine`.

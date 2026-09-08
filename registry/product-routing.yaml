@@ -1,10 +1,11 @@
-version: 0.3.0
+version: 0.4.0
 
 principles:
   agent_os_workforce: shared execution infrastructure; not a separate public offering
   shared_growth: Growth / Marketing Engineering is a workforce capability; not a standalone product
   authority: context and intelligence may propose work but do not grant execution authority
   evidence: implemented, simulated, preview, deployed, and user-validated states must remain distinct
+  operational_clock: current host implementation may be Hermes; Agent OS core remains scheduler and harness agnostic
 
 shared_capabilities:
   growth:
@@ -85,6 +86,13 @@ products:
     constraints: [creative Portfolio and SaaS Build Journal remain distinct, public narrative is curated from evidence, validated growth learning may be documented selectively without exposing proprietary operating machinery]
 
 environments:
+  hermes:
+    adapter: adapters/hermes
+    adapter_status: implemented-current-host
+    mode: generalized local operator harness + governed fleet scheduler
+    operational_clock: implemented
+    continuity_pair: [milchik, polly]
+    constraints: [current implementation not core dependency, clock does not grant authority, external deployment remains adapter/grant scoped]
   cto-new: {adapter: adapters/cto-new, mode: generalized harness execution}
   codex: {adapter_status: planned, mode: generalized harness execution}
   github: {adapter_status: implemented-read-only, mode: source control, review, and workflow evidence}

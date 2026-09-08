@@ -1,4 +1,4 @@
-version: 0.7.0
+version: 0.8.0
 
 policy:
   selection: minimum-sufficient-set
@@ -64,7 +64,7 @@ skills:
   skill-resolution:
     path: skills/skill-resolver/SKILL.md
     trust: owned
-    agents: [router, w-dog, zoie, bill, eugene, steward, designer, rook, scout, ledger]
+    agents: [router, w-dog, zoie, bill, eugene, steward, designer, rook, scout, ledger, milchik, polly]
     triggers: [specialized capability required, missing capability, select skills, external skill discovery]
   task-routing: {trust: owned, embedded_in: agents/router/IDENTITY.md, preferred_agents: [router]}
 
@@ -83,8 +83,15 @@ skills:
     trust: owned
     priority: p0
     primary_agent: bill
-    preferred_agents: [bill, rook, ledger, w-dog, router]
+    preferred_agents: [bill, polly, rook, ledger, w-dog, router]
     triggers: [recurring work, scheduled task, repeated automation, cron job, periodic agent work, event-triggered routine, recurring monitoring, recurring delivery]
+  release-persistence:
+    path: skills/owned/release-persistence/SKILL.md
+    trust: owned
+    priority: p0
+    primary_agent: polly
+    preferred_agents: [polly, milchik, bill, eugene, w-dog, rook]
+    triggers: [approved but not live, release pending, deployment blocked, deployment retry, rate limit recovery, provider cooldown, CI transient failure, ambiguous release result, resume approved release, verify live deployment]
   agent-identity-design:
     path: skills/owned/agent-identity-design/SKILL.md
     trust: owned
@@ -106,17 +113,17 @@ skills:
   authorization-policy:
     path: skills/owned/authorization-policy/SKILL.md
     trust: owned
-    preferred_agents: [rook, eugene, w-dog]
+    preferred_agents: [rook, eugene, w-dog, polly]
     triggers: [external mutation, production action, send or publish, credentials, money, sensitive data, irreversible action]
   audit-evidence-ledger:
     path: skills/owned/audit-evidence-ledger/SKILL.md
     trust: owned
-    preferred_agents: [ledger, w-dog, steward, scout]
+    preferred_agents: [ledger, w-dog, steward, scout, milchik, polly]
     triggers: [approval evidence, execution result, reversal, governance audit, Build Journal source]
   end-to-end-verification:
     path: skills/owned/end-to-end-verification/SKILL.md
     trust: owned
-    preferred_agents: [w-dog, eugene, designer, rook]
+    preferred_agents: [w-dog, eugene, designer, rook, polly]
     triggers: [release readiness, production verification, integration completion, regression review]
   quality-railguards:
     path: skills/owned/quality-railguards/SKILL.md
