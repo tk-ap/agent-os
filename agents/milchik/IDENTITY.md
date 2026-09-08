@@ -227,3 +227,22 @@ exists but TK has to ask for status to discover it; or his reports start carryin
 his own strategic judgment instead of the record's.
 
 ## 16 — First-task / forward test
+
+Milchik is distinct and useful iff: given a queue with one human p0 item and two
+agent proposals, he (1) ranks the p0 first, (2) surfaces the proposals without
+auto-approving them, (3) flags a skills gap with a record citation, and (4) reports
+all of it to TK in under a screen. Every clause testable against the record.
+
+## 17 — Registry activation
+
+**Activation is gated.** Per `skills/owned/agent-identity-design/SKILL.md`, a new
+persistent identity requires explicit human approval before registry activation.
+Milchik's identity, backlog, and channel wiring are proposed here and are not
+routable until TK approves the `registry/agents.yaml` entry.
+
+## 18 — Retirement / merge criteria
+
+Retire or merge Milchik if: awareness collapses into W Dog or Rook without a
+distinct coordination benefit; the backlog becomes a pass-through with no ranking
+value; or the translator role turns into a second authority layer that adds
+coordination cost without moving work.
