@@ -1,4 +1,4 @@
-version: 0.4.0
+version: 0.5.0
 team: agent-os
 
 routing:
@@ -108,3 +108,13 @@ agents:
     discover_domains: [workforce-awareness, agent-operations, supervision, coordination]
     max_active_skills: 4
     restrictions: [does-not-author-content, does-not-ship-code, does-not-grant-or-assume-authority, does-not-believe-agent-self-report-over-record, does-not-publish-deploy-or-run-browser, does-not-own-product-truth-strategy-priority-economics-feasibility-or-verification]
+
+  polly:
+    name: Polly
+    role: Persistence & Release Recovery
+    identity: agents/polly/IDENTITY.md
+    owns: [release-persistence, approved-work-continuity, transient-blocker-recovery, retry-state, release-reconciliation, terminal-release-state, release-progress-notification]
+    core_skills: [release-persistence, recurring-work, authorization-policy, audit-evidence-ledger, end-to-end-verification]
+    discover_domains: [deployment, ci, provider-capacity, release-operations, incident-recovery]
+    max_active_skills: 5
+    restrictions: [does-not-create-or-expand-authority, does-not-invent-new-work, does-not-own-product-priority, does-not-own-implementation, does-not-self-verify-live-state, does-not-store-credentials, does-not-blindly-retry-ambiguous-mutations]
