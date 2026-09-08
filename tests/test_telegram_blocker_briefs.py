@@ -35,10 +35,12 @@ class MilchikBlockerBriefTests(unittest.TestCase):
     def tearDown(self):
         self.conn.close()
 
-    def _insert(self, phase, attempts=1, harnesses=("codex-cli",), next_at=0):
+    def _insert(self, phase, attempts=1, harnesses=("codex-cli",), next_at=0,
+                capabilities=("filesystem", "git", "shell")):
         payload = {
             "work_id": "directive-13-work",
             "owning_agent": "eugene",
+            "required_capabilities": list(capabilities),
             "problem_or_opportunity": {
                 "directive": "Restore ailhat production reliability and validate the live scan loop"
             },
@@ -61,16 +63,33 @@ class MilchikBlockerBriefTests(unittest.TestCase):
         self._insert("waiting_capacity", next_at=time.time() + 600)
         self.assertEqual(collect_blocker_briefs(self.conn), 1)
         message = self.conn.execute("SELECT message FROM telegram_cards").fetchone()[0]
-        self.assertIn("BLOCKED — execution capacity", message)
+        self.assertIn("work is preserved", message)
         self.assertIn("retry it automatically", message)
         self.assertIn("Nothing right now", message)
+        self.assertIn("Waiting is a valid action", message)
         self.assertIn("codex-cli", message)
+
+    def test_shell_task_explains_why_claude_cannot_take_same_envelope(self):
+        self._insert("waiting_capacity", capabilities=("filesystem", "git", "shell"))
+        collect_blocker_briefs(self.conn)
+        message = self.conn.execute("SELECT message FROM telegram_cards").fetchone()[0]
+        self.assertIn("claude-code is missing shell", message)
+        self.assertIn("split the work", message)
+        self.assertIn("Do not widen permissions", message)
+
+    def test_git_only_task_surfaces_claude_as_eligible_alternate(self):
+        self._insert("waiting_capacity", capabilities=("filesystem", "git"))
+        collect_blocker_briefs(self.conn)
+        message = self.conn.execute("SELECT message FROM telegram_cards").fetchone()[0]
+        self.assertIn("second configured harness", message)
+        self.assertIn("claude-code", message)
+        self.assertIn("fleet-selection problem", message)
 
     def test_approval_blocker_tells_tk_exactly_to_review_approval_card(self):
         self._insert("waiting_approval")
         collect_blocker_briefs(self.conn)
         message = self.conn.execute("SELECT message FROM telegram_cards").fetchone()[0]
-        self.assertIn("BLOCKED — your approval is required", message)
+        self.assertIn("boundary only you can clear", message)
         self.assertIn("Review the approval card", message)
 
     def test_same_stalled_state_does_not_spam_each_minute(self):
