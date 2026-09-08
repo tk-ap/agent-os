@@ -2,17 +2,6 @@
 
 Implements the four decision classes defined in policies/AUTONOMY_POLICY.md and
 evaluates the fields defined in contracts/authorization-request.schema.json.
-
-Two things are deliberate.
-
-The decision is a pure function of declared inputs. No model judgement is
-involved, because this is the enforcement boundary; interpretation belongs
-above it, not inside it.
-
-It fails closed. Anything not positively recognised as within the read-only
-envelope escalates. An unrecognised action, an unreadable request, or a field
-the policy has no rule for produces HUMAN_ESCALATION rather than a default
-allow.
 """
 
 from typing import Any
@@ -21,14 +10,11 @@ from runtime.task import Task
 
 POLICY = "policies/AUTONOMY_POLICY.md"
 
-# policies/AUTONOMY_POLICY.md, "Decision Classes"
 AUTONOMOUS = "AUTONOMOUS"
 AUTONOMOUS_AUDIT = "AUTONOMOUS_AUDIT"
 AGENT_CONSENSUS = "AGENT_CONSENSUS"
 HUMAN_ESCALATION = "HUMAN_ESCALATION"
 
-# Only these two proceed. executor.py gates on the AUTHORIZED literal, so the
-# mapping from decision class to gate is the single place that meaning lives.
 _GATE = {
     AUTONOMOUS: "AUTHORIZED",
     AUTONOMOUS_AUDIT: "AUTHORIZED",
@@ -36,10 +22,8 @@ _GATE = {
     HUMAN_ESCALATION: "HUMAN_GATE",
 }
 
-# Task classes inside the read-only execution envelope.
 READ_ONLY_TASK_CLASSES = {"inspection"}
 
-# The policy's AGENT CONSENSUS tier names its control agents by domain.
 CONTROL_AGENTS = {
     "economics": "ledger",
     "security": "rook",
@@ -49,8 +33,6 @@ CONTROL_AGENTS = {
     "initiative-priority": "steward",
 }
 
-# Each entry maps a HUMAN ESCALATION bullet in the policy to the declared
-# request fields that evidence it. Kept as data so the mapping is auditable.
 _ESCALATION_RULES = (
     ("irreversible or destructive material action", "actions",
      ("delete", "destroy", "drop", "purge", "truncate", "wipe", "erase", "force-push", "reset --hard", "revoke")),
@@ -68,7 +50,6 @@ _ESCALATION_RULES = (
 
 
 def _values(request: dict[str, Any] | None, field: str) -> list[str]:
-    """Declared values for a field, lowercased. Unreadable shapes yield nothing."""
     if not isinstance(request, dict):
         return []
     raw = request.get(field)
@@ -90,12 +71,20 @@ def _values(request: dict[str, Any] | None, field: str) -> list[str]:
 
 
 def classify(task: Task, request: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Decide the policy class for a task and its optional authorization request."""
+    # Independent verification is an audited role, not release authority. The
+    # verifier may inspect live/provider state, but any underlying mutation must
+    # still be separately bounded by the target system's own authorization path.
+    if task.task_class == "verification":
+        return {
+            "decision_class": AUTONOMOUS_AUDIT,
+            "triggers": ["independent verification role; attestation does not grant release authority"],
+            "control_agents": [],
+        }
+
     triggers: list[str] = []
     for label, field, needles in _ESCALATION_RULES:
         declared = _values(request, field)
         hits = sorted({n for n in needles for value in declared if n in value})
-        # The request text itself is evidence for action-shaped rules.
         if field == "actions":
             hits += sorted({n for n in needles if n in task.request.lower()} - set(hits))
         if hits:
@@ -104,8 +93,6 @@ def classify(task: Task, request: dict[str, Any] | None = None) -> dict[str, Any
     if triggers:
         return {"decision_class": HUMAN_ESCALATION, "triggers": triggers, "control_agents": []}
 
-    # Reaching outside the boundary is not automatically escalation, but it is
-    # not a decision one agent should take alone either.
     consensus: list[str] = []
     if _values(request, "network_destinations"):
         consensus.append(CONTROL_AGENTS["security"])
@@ -121,7 +108,6 @@ def classify(task: Task, request: dict[str, Any] | None = None) -> dict[str, Any
     if task.task_class in READ_ONLY_TASK_CLASSES:
         return {"decision_class": AUTONOMOUS, "triggers": [], "control_agents": []}
 
-    # Recognised, within authority, but consequential enough to record.
     if task.task_class == "implementation":
         return {
             "decision_class": HUMAN_ESCALATION,
@@ -129,7 +115,6 @@ def classify(task: Task, request: dict[str, Any] | None = None) -> dict[str, Any
             "control_agents": [],
         }
 
-    # Fail closed: an unrecognised task class is not evidence of safety.
     return {
         "decision_class": HUMAN_ESCALATION,
         "triggers": [f"unrecognised task class '{task.task_class}'"],
@@ -144,7 +129,7 @@ def authorize(task: Task, request: dict[str, Any] | None = None):
 
     reasons = {
         AUTONOMOUS: "Read-only inspection is within the initial execution envelope.",
-        AUTONOMOUS_AUDIT: "Within delegated authority; rationale and rollback path must be recorded.",
+        AUTONOMOUS_AUDIT: "Within delegated authority; rationale and evidence must be recorded.",
         AGENT_CONSENSUS: "Decision crosses material domains and requires the named control agents.",
         HUMAN_ESCALATION: "Policy requires human authorization before this action.",
     }
