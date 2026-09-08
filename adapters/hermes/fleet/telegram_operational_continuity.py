@@ -154,6 +154,7 @@ def install(telegram):
             continuity = ignite(conn, ROOT)
             if continuity.get("status") == "started":
                 telegram.route_directives(conn, actual_state)
+                conn.commit()
         finally:
             conn.close()
 
