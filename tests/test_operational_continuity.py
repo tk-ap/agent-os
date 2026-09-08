@@ -1,5 +1,6 @@
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -7,7 +8,21 @@ from adapters.hermes.fleet import telegram_operational_continuity as continuity
 
 
 SCHEMA = """
-CREATE TABLE agent_os_orders (task_id TEXT, phase TEXT);
+CREATE TABLE tasks (id TEXT PRIMARY KEY, status TEXT NOT NULL);
+CREATE TABLE agent_os_orders (
+  task_id TEXT,
+  work_id TEXT,
+  phase TEXT,
+  revoked INTEGER NOT NULL DEFAULT 0,
+  expires REAL NOT NULL DEFAULT 4102444800
+);
+CREATE TABLE agent_os_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts REAL NOT NULL,
+  task_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  detail TEXT NOT NULL
+);
 CREATE TABLE telegram_directives (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts REAL NOT NULL,
@@ -40,6 +55,19 @@ def conn():
     value.row_factory = sqlite3.Row
     value.executescript(SCHEMA)
     return value
+
+
+def add_order(db, task_id, work_id, phase, task_status, *, event_age=0, revoked=0):
+    db.execute("INSERT INTO tasks(id,status) VALUES (?,?)", (task_id, task_status))
+    db.execute(
+        "INSERT INTO agent_os_orders(task_id,work_id,phase,revoked,expires) VALUES (?,?,?,?,?)",
+        (task_id, work_id, phase, revoked, time.time() + 86400),
+    )
+    if event_age is not None:
+        db.execute(
+            "INSERT INTO agent_os_events(ts,task_id,kind,detail) VALUES (?,?,?,?)",
+            (time.time() - event_age, task_id, "phase", "{}"),
+        )
 
 
 class OperationalContinuityTests(unittest.TestCase):
@@ -75,7 +103,7 @@ class OperationalContinuityTests(unittest.TestCase):
         self.assertEqual(result["status"], "idle-no-cleared-work")
         self.assertEqual(db.execute("SELECT count(*) FROM telegram_directives").fetchone()[0], 0)
 
-    def test_busy_fleet_does_not_start_another_item(self):
+    def test_running_fleet_does_not_start_another_item(self):
         temp, root = root_with_backlog("""
 - work_id: proof-1
   source: human
@@ -85,10 +113,91 @@ class OperationalContinuityTests(unittest.TestCase):
 """)
         self.addCleanup(temp.cleanup)
         db = conn()
-        db.execute("INSERT INTO agent_os_orders VALUES ('task-live','review')")
+        add_order(db, "task-live", "existing-work", "running", "running")
         result = continuity.ignite(db, root)
         self.assertEqual(result["status"], "busy")
         self.assertEqual(db.execute("SELECT count(*) FROM telegram_directives").fetchone()[0], 0)
+
+    def test_fresh_review_briefly_blocks_new_ignition(self):
+        temp, root = root_with_backlog("""
+- work_id: proof-1
+  source: human
+  status: approved
+  priority: {level: p1, confidence: 1.0}
+  title: Existing approved work
+""")
+        self.addCleanup(temp.cleanup)
+        db = conn()
+        add_order(db, "task-review", "review-work", "review", "review", event_age=30)
+        result = continuity.ignite(db, root)
+        self.assertEqual(result["status"], "busy")
+
+    def test_stale_review_remains_open_but_does_not_freeze_floor(self):
+        temp, root = root_with_backlog("""
+- work_id: proof-1
+  source: human
+  status: approved
+  priority: {level: p1, confidence: 1.0}
+  title: Continue useful work
+""")
+        self.addCleanup(temp.cleanup)
+        db = conn()
+        add_order(
+            db,
+            "task-review",
+            "review-work",
+            "review",
+            "review",
+            event_age=continuity.HUMAN_WAIT_BUSY_SECONDS + 1,
+        )
+        result = continuity.ignite(db, root)
+        self.assertEqual(result["status"], "started")
+
+    def test_superseded_review_does_not_freeze_floor(self):
+        temp, root = root_with_backlog("""
+- work_id: proof-1
+  source: human
+  status: approved
+  priority: {level: p1, confidence: 1.0}
+  title: Continue useful work
+""")
+        self.addCleanup(temp.cleanup)
+        db = conn()
+        add_order(db, "task-old", "directive-2-routing", "review", "review", event_age=20)
+        add_order(db, "task-new", "directive-2-routing-rev2", "blocked", "blocked", event_age=10)
+        result = continuity.ignite(db, root)
+        self.assertEqual(result["status"], "started")
+
+    def test_blocked_queued_card_does_not_masquerade_as_moving_work(self):
+        temp, root = root_with_backlog("""
+- work_id: proof-1
+  source: human
+  status: approved
+  priority: {level: p1, confidence: 1.0}
+  title: Continue useful work
+""")
+        self.addCleanup(temp.cleanup)
+        db = conn()
+        add_order(db, "task-stuck", "directive-8-routing", "queued", "blocked", event_age=10)
+        result = continuity.ignite(db, root)
+        self.assertEqual(result["status"], "started")
+
+    def test_stale_captured_directive_does_not_freeze_floor(self):
+        temp, root = root_with_backlog("""
+- work_id: proof-1
+  source: human
+  status: approved
+  priority: {level: p1, confidence: 1.0}
+  title: Continue useful work
+""")
+        self.addCleanup(temp.cleanup)
+        db = conn()
+        db.execute(
+            "INSERT INTO telegram_directives(ts,text,status) VALUES (?,?,?)",
+            (time.time() - continuity.HUMAN_WAIT_BUSY_SECONDS - 1, "old", "captured"),
+        )
+        result = continuity.ignite(db, root)
+        self.assertEqual(result["status"], "started")
 
     def test_release_pending_is_not_rebuilt_and_is_surfaced_once(self):
         temp, root = root_with_backlog("""
