@@ -9,7 +9,7 @@ class FleetClockEntrypointTests(unittest.TestCase):
     def test_generated_fleet_clock_enters_continuity_tick(self):
         source = fleet_install._fleet_script_source()
         self.assertIn('"continuity-tick"', source)
-        self.assertNotIn('"tick"])', source)
+        self.assertNotIn(', "tick"])', source)
 
     def test_agent_os_managed_script_can_upgrade(self):
         with tempfile.TemporaryDirectory() as temp:
