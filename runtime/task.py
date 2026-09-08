@@ -13,6 +13,7 @@ class Task:
     execution: dict[str, Any] = field(default_factory=dict)
     verification: dict[str, Any] = field(default_factory=dict)
     evidence: dict[str, Any] = field(default_factory=dict)
+    verification_context: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self):
         return {
@@ -25,16 +26,22 @@ class Task:
             "execution": self.execution,
             "verification": self.verification,
             "evidence": self.evidence,
+            "verification_context": self.verification_context,
         }
 
 
 def normalize(request: str) -> Task:
     text = request.lower()
 
+    # Independent verification is a distinct workflow, not an inspection alias.
+    # It takes precedence over generic words such as review/check because its
+    # independence and live-evidence requirements are materially different.
+    if any(x in text for x in ["independent verify", "independent verification", "verified attestation", "live rerun", "attest"]):
+        task_class = "verification"
     # Action verbs take precedence over words describing the condition.
     # For example, "fix the broken mobile navigation" is an implementation
     # task, while "inspect the broken mobile navigation" is an inspection.
-    if any(x in text for x in ["implement", "build", "fix", "change", "code", "deploy"]):
+    elif any(x in text for x in ["implement", "build", "fix", "change", "code", "deploy"]):
         task_class = "implementation"
     elif any(x in text for x in ["inspect", "check", "audit", "review", "broken", "status", "diagnose"]):
         task_class = "inspection"
