@@ -1,0 +1,31 @@
+version: 1
+principles:
+  - durable task state and agent identity are independent from execution harness selection
+  - harnesses are replaceable execution resources
+  - prefer low-cost intelligence for coordination and routine inspection
+  - escalate when capability, confidence, or independence requires it
+  - never allow a material participant to independently verify its own work
+
+defaults:
+  coordination: hermes
+  implementation: codex
+  verification: claude
+  inspection: hermes
+
+rules:
+  - when: task_class == implementation
+    prefer: codex
+    intelligence_tier: premium
+  - when: task_class == verification
+    prefer: claude
+    intelligence_tier: premium
+    require_independence: true
+  - when: task_class == inspection
+    prefer: hermes
+    intelligence_tier: low
+  - when: coordination_or_status
+    prefer: hermes
+    intelligence_tier: low
+  - when: complexity == high
+    escalate_from: hermes
+    to: claude
