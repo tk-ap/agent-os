@@ -34,6 +34,16 @@ def collect_refresh_cards(conn):
             message = briefs._collision_message(row)
         else:
             message = briefs._blocked_message(row)
+        # Only a card still showing the pre-#62 terse text needs refreshing.
+        # collect_blocker_briefs calls these same message builders, so any card
+        # it wrote after the upgrade is already this exact text -- re-sending it
+        # under a v2 key delivers the identical message to TK a second time.
+        # This ran on every tick, so every blocker alert arrived twice.
+        current = conn.execute(
+            "SELECT message FROM telegram_cards WHERE event_key=?",
+            (f"blocker:{row['task_id']}:{phase}:{row['attempts']}",)).fetchone()
+        if current and current["message"] == message:
+            continue
         conn.execute(
             """INSERT INTO telegram_cards
                (id,event_key,task_id,expires,message,channel)

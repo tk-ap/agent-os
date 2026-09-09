@@ -4,6 +4,7 @@ import time
 import unittest
 
 from adapters.hermes.fleet.telegram_blocker_briefs import collect_blocker_briefs
+from adapters.hermes.fleet.telegram_blocker_brief_migration import collect_refresh_cards
 
 
 class MilchikBlockerBriefTests(unittest.TestCase):
@@ -58,6 +59,42 @@ class MilchikBlockerBriefTests(unittest.TestCase):
                 next_at,
             ),
         )
+
+    def test_refresh_does_not_resend_a_card_that_is_already_current(self):
+        """Every blocker alert reached TK twice.
+
+        The v2 refresh adapter wraps collect_fleet and so runs on every tick,
+        and it builds its message with the same functions collect_blocker_briefs
+        uses. Once those functions were upgraded in place, the refresh emitted a
+        byte-identical copy of the card that already existed, under a different
+        event_key so nothing deduplicated it.
+        """
+        self._insert("blocked")
+        collect_blocker_briefs(self.conn)
+        self.assertEqual(collect_refresh_cards(self.conn), 0)
+        rows = self.conn.execute("SELECT message FROM telegram_cards").fetchall()
+        self.assertEqual(len(rows), 1, "the same blocker was announced twice")
+
+    def test_refresh_still_upgrades_a_genuinely_stale_card(self):
+        """A card written before the conversational upgrade must still be refreshed."""
+        self._insert("blocked")
+        self.conn.execute(
+            """INSERT INTO telegram_cards(id,event_key,task_id,expires,message,channel)
+               VALUES ('old','blocker:t-proof:blocked:1','t-proof',?,?,'private')""",
+            (time.time() + 604800, "Task blocked."))
+        self.assertEqual(collect_refresh_cards(self.conn), 1)
+        refreshed = self.conn.execute(
+            "SELECT message FROM telegram_cards WHERE event_key LIKE 'blocker-conversational-v2:%'"
+        ).fetchone()["message"]
+        self.assertIn("Milchik", refreshed)
+
+    def test_refresh_stays_idempotent_across_ticks(self):
+        self._insert("waiting_capacity")
+        collect_blocker_briefs(self.conn)
+        for _ in range(3):
+            collect_refresh_cards(self.conn)
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) FROM telegram_cards").fetchone()[0], 1)
 
     def test_capacity_blocker_says_retry_is_automatic_and_tk_need_not_act(self):
         self._insert("waiting_capacity", next_at=time.time() + 600)
