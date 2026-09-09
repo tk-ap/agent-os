@@ -197,6 +197,7 @@ def _technical_details(conn, card, state):
             "stale": "The earlier review no longer matches the current files.",
             "unreadable": "The reviewer did not return a machine-readable yes/no verdict.",
             "unavailable": "The independent review could not run.",
+            "superseded": "A revision replaced this attempt; the newer one carries the work.",
         }.get(inspection["verdict"], str(inspection["verdict"]))
         lines.append(readable)
         if inspection["failed"]:

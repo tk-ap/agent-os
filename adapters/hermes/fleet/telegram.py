@@ -135,7 +135,11 @@ def migrate(conn):
         "agent_os_orders": {"owning_agent": "TEXT"},
         # A verdict is only about the files it was given. Without the snapshot it
         # was formed against, a later change silently inherits an old approval.
-        "agent_os_inspections": {"snapshot": "TEXT"},
+        # A verdict line the machine cannot read is the inspector's formatting
+        # failure, not a finding about the work. Counting retries lets the check
+        # be re-run once before it costs the operator any attention.
+        "agent_os_inspections": {"snapshot": "TEXT",
+                                 "verdict_retries": "INTEGER NOT NULL DEFAULT 0"},
         # A directive started from the backlog via /next carries the backlog
         # work_id so the routed order can be stamped with board provenance.
         "telegram_directives": {"backlog_work_id": "TEXT"},
@@ -281,7 +285,16 @@ def request_inspection(conn, state, now=None):
         # recurse forever, and there is no third party to break the tie.
         if row["work_id"].endswith(INSPECTION_SUFFIX):
             continue
-        if conn.execute("SELECT 1 FROM agent_os_inspections WHERE task_id=?", (row["task_id"],)).fetchone():
+        existing = conn.execute(
+            "SELECT verdict, inspector_task_id FROM agent_os_inspections WHERE task_id=?",
+            (row["task_id"],)).fetchone()
+        # The presence of a row does not mean the check is in hand. A row with
+        # neither a verdict nor a live inspector is stranded: read_inspection_
+        # verdicts skips it (it requires inspector_task_id), and this loop used
+        # to skip it too, so the order sat in phase 'review' forever with nobody
+        # coming for it. Re-inspect those instead of abandoning them.
+        if existing and (existing["verdict"] is not None
+                         or existing["inspector_task_id"] is not None):
             continue
         try:
             order = json.loads(row["payload"])
@@ -376,8 +389,17 @@ def read_inspection_verdicts(conn, state):
                                                  (row["task_id"],)).fetchone())
         except (OSError, ValueError, subprocess.SubprocessError):
             inspected = None
-        conn.execute("UPDATE agent_os_inspections SET verdict=?, failed=?, snapshot=? WHERE task_id=?",
-                     (verdict, short(summary, 600), inspected, row["task_id"]))
+        retries = row["verdict_retries"] or 0
+        if verdict == "unreadable" and retries < MAX_VERDICT_RETRIES:
+            # Send the work back to a fresh inspector rather than to TK. The
+            # producer is not at fault for a malformed verdict line, and under
+            # unattended operation an escalation here is a stall, not a safeguard.
+            conn.execute("""UPDATE agent_os_inspections SET verdict=NULL, inspector_task_id=NULL,
+                verdict_retries=?, failed=?, snapshot=? WHERE task_id=?""",
+                (retries + 1, short(summary, 600), inspected, row["task_id"]))
+        else:
+            conn.execute("UPDATE agent_os_inspections SET verdict=?, failed=?, snapshot=? WHERE task_id=?",
+                         (verdict, short(summary, 600), inspected, row["task_id"]))
         # The inspector's own order is consumed the moment its verdict is read.
         # Leaving it in review would park a W Dog report as if it were pending
         # TK's decision, cluttering /status with work that already did its job.
@@ -389,6 +411,10 @@ def read_inspection_verdicts(conn, state):
 
 
 MAX_REVISION_CYCLES = 2
+# One re-inspection for an unreadable verdict. A second failure is a real
+# signal -- the inspector cannot produce a readable judgement -- and belongs
+# with TK rather than in another loop.
+MAX_VERDICT_RETRIES = 1
 
 
 def run_revisions(conn, state, now=None):
@@ -454,8 +480,15 @@ def run_revisions(conn, state, now=None):
         except (ValueError, OSError):
             conn.execute("UPDATE agent_os_inspections SET verdict='escalated' WHERE task_id=?", (row["task_id"],))
             continue
-        conn.execute("""UPDATE agent_os_inspections SET verdict=NULL, cycles=?, inspector_task_id=NULL
-            WHERE task_id=?""", (attempt, row["task_id"]))
+        # The revision carries this work forward, so the parent is done, not
+        # waiting. Blanking its verdict left it in phase 'review' where the
+        # verdict reader ignored it (no inspector) and the assigner skipped it
+        # (a row existed) -- stranded, while still showing up as work pending
+        # TK's decision.
+        conn.execute("""UPDATE agent_os_inspections SET verdict='superseded', cycles=?,
+            inspector_task_id=NULL WHERE task_id=?""", (attempt, row["task_id"]))
+        conn.execute("UPDATE agent_os_orders SET phase='superseded' WHERE task_id=?",
+                     (row["task_id"],))
 
 
 # Where each product is actually reachable. Nothing is inferred from a repo name.

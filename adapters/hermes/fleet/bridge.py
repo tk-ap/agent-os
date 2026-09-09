@@ -311,7 +311,7 @@ def tick(state, dry_run=False):
                 "note": "Preview only; no reclaim, process launch, or capacity probe"}
         for row in conn.execute("SELECT * FROM agent_os_orders").fetchall():
             task = kb.get_task(conn, row["task_id"])
-            if not authorized(row) and task.status != "running" and row["phase"] not in {"review", "revoked", "waiting_approval", "denied"}:
+            if not authorized(row) and task.status != "running" and row["phase"] not in {"review", "revoked", "waiting_approval", "denied", "superseded"}:
                 if not dry_run:
                     stop(conn, task.id, "revoked", "Authority expired, revoked, or payload changed")
             elif row["phase"] == "waiting_capacity" and row["next_at"] <= time.time() and authorized(row):
