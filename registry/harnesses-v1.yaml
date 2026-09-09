@@ -1,0 +1,16 @@
+harnesses:
+  hermes:
+    role: coordinator
+    cost_tier: low
+    intelligence_tier: low
+    capabilities: [summarize, classify, route, explain, monitor, inspection]
+  codex:
+    role: executor
+    cost_tier: premium
+    intelligence_tier: premium
+    capabilities: [implementation, debugging, testing, repository_change]
+  claude:
+    role: reviewer
+    cost_tier: premium
+    intelligence_tier: premium
+    capabilities: [independent_verification, architecture_review, adversarial_review, security_review]
