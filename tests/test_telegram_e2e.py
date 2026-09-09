@@ -109,6 +109,68 @@ class ApprovalGateTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_a_lapsed_grant_asks_again_instead_of_stalling_silently(self):
+        """The trap: a grant that lapses before any harness is free sends the
+        task back to waiting_approval without touching attempts, and the files
+        are unchanged, so the approval card key was byte-identical to the one TK
+        had already answered and INSERT OR IGNORE dropped it. waiting_approval
+        is excluded from every sweep in tick(), so the task sat there forever,
+        with no card, after TK had said yes."""
+        conn, task_id = self._parked()
+        try:
+            telegram.schema(conn)
+            telegram.collect_approval_requests(conn, self.state)
+            first = conn.execute(
+                "SELECT id,event_key FROM telegram_cards WHERE task_id=?", (task_id,)).fetchone()
+            self.assertIsNotNone(first)
+            # TK answers it, and the grant then lapses unused.
+            conn.execute("UPDATE telegram_cards SET decision='approve' WHERE id=?", (first["id"],))
+            bridge.emit(conn, task_id, "grant_expired", {"scope": "commit and push the branch"})
+
+            telegram.collect_approval_requests(conn, self.state)
+            cards = conn.execute(
+                "SELECT event_key,message FROM telegram_cards WHERE task_id=? ORDER BY rowid",
+                (task_id,)).fetchall()
+            self.assertEqual(len(cards), 2, "the re-ask never reached TK")
+            self.assertTrue(cards[1]["event_key"].endswith(":r1"))
+            self.assertIn("approved this already", cards[1]["message"])
+            self.assertIn("Not your mistake", cards[1]["message"])
+            self.assertIn("Nothing was done", cards[1]["message"])
+        finally:
+            conn.close()
+
+    def test_a_second_lapse_asks_again_rather_than_going_quiet(self):
+        conn, task_id = self._parked()
+        try:
+            telegram.schema(conn)
+            for lapse in range(1, 4):
+                telegram.collect_approval_requests(conn, self.state)
+                conn.execute("UPDATE telegram_cards SET decision='approve' WHERE task_id=?",
+                             (task_id,))
+                bridge.emit(conn, task_id, "grant_expired", {"scope": "s"})
+            telegram.collect_approval_requests(conn, self.state)
+            keys = [r["event_key"] for r in conn.execute(
+                "SELECT event_key FROM telegram_cards WHERE task_id=? ORDER BY rowid", (task_id,))]
+            self.assertEqual(len(keys), len(set(keys)), "a lapse produced a duplicate key")
+            self.assertTrue(keys[-1].endswith(":r3"))
+        finally:
+            conn.close()
+
+    def test_a_first_time_request_keeps_its_original_card_key(self):
+        """Existing waiting_approval cards must not be re-emitted by this change."""
+        conn, task_id = self._parked()
+        try:
+            telegram.schema(conn)
+            telegram.collect_approval_requests(conn, self.state)
+            key = conn.execute("SELECT event_key FROM telegram_cards WHERE task_id=?",
+                               (task_id,)).fetchone()["event_key"]
+            self.assertNotIn(":r", key.split(f"approval:{task_id}:")[1])
+            telegram.collect_approval_requests(conn, self.state)
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM telegram_cards WHERE task_id=?", (task_id,)).fetchone()[0], 1)
+        finally:
+            conn.close()
+
     def test_expired_grant_reparks_without_touching_the_harness(self):
         task = self.claimed()
         conn = bridge.connect(self.state)

@@ -717,8 +717,28 @@ def collect_approval_requests(conn, state):
             stamp = fingerprint(row)
         except (OSError, ValueError, subprocess.SubprocessError):
             pass
+        # A grant that lapsed before the work could run sends the task back to
+        # waiting_approval without touching attempts, and the files are
+        # unchanged, so the key below was byte-identical to the card TK already
+        # answered and INSERT OR IGNORE dropped it. The task then sat in a phase
+        # no sweep in tick() touches, with no card, after TK had said yes:
+        # a silent permanent stall. Count the lapses so a re-ask is a new card.
+        reasks = conn.execute(
+            "SELECT COUNT(*) FROM agent_os_events WHERE task_id=? AND kind='grant_expired'",
+            (row["task_id"],)).fetchone()[0]
         key = f"approval:{row['task_id']}:{row['attempts']}:{stamp}"
+        if reasks:
+            key += f":r{reasks}"
         text = f"{badge(row['owning_agent'])} stopped at a protected boundary. **Your call.**\n\n"
+        if reasks:
+            # Never let this read as though TK failed to answer the first time.
+            text = (f"{badge(row['owning_agent'])} needs this approved again. "
+                    "**Not your mistake.**\n\n"
+                    "**WHAT HAPPENED**\n"
+                    f"  You approved this already. The grant lasts {GRANT_TTL // 3600} hours and it\n"
+                    "  ran out before any harness was free to do the work, so the task\n"
+                    "  parked rather than run on lapsed authority. Nothing was done\n"
+                    "  under the old grant.\n\n")
         text += f"**WHAT IT NEEDS**\n  {scope}\n\n"
         text += f"**WHY**\n  {short(request.get('reason') or 'No reason given.', 320)}\n\n"
         text += "**IF YOU APPROVE**\n"
