@@ -21,9 +21,12 @@ Use the fleet `status` command to inspect it; it is not the default dashboard bo
 - Harnesses: Codex CLI uses workspace-write and never bypasses approvals/sandboxing.
   Claude Code runs file tools plus Bash scoped to git/gh via --allowedTools
   (Bash(git:*), Bash(gh:*)); anything else is auto-denied in --print + dontAsk
-  mode, and WebFetch/WebSearch are not loaded. Git work may use either harness;
-  shell routes only to Codex. Capability routing is enforced from
-  registry/harnesses.yaml at enqueue time.
+  mode, and WebFetch/WebSearch are not loaded. Gemini CLI runs headless with
+  --approval-mode auto_edit, which auto-approves edit tools and nothing else,
+  so a shell call still needs a confirmation headless execution cannot give.
+  Git work may use Codex or Claude; shell routes only to Codex; Gemini is
+  filesystem-only. Capability routing is enforced from registry/harnesses.yaml
+  at enqueue time.
 - Billing: API-key environment variables are removed. Codex requires ChatGPT login;
   Claude uses its existing login. There is no API overflow route or automatic purchase.
   Subscription/account-side extra-usage settings are not inspected or changed by this adapter.
@@ -77,8 +80,21 @@ selects an isolated test queue. Do not start concurrent manual work in a workspa
 currently assigned to a worker; the adapter lock cannot stop unrelated interactive agents.
 
 OpenCode is intentionally not enabled: the installed command is an installer shim,
-and its executable/permission contract could not be verified. Gemini is installed but
-not part of the current Agent OS harness registry. Neither is silently substituted.
+and its executable/permission contract could not be verified. It is not silently
+substituted.
+
+Gemini CLI is registered as a third executor so that one exhausted provider cannot
+stop the fleet: it answers to a different account and quota pool than Codex or
+Claude. Two prerequisites are operator actions and are not performed by this
+adapter. Gemini must be logged in -- an unauthenticated run reports "Please set an
+Auth method" and exits 0, which the adapter classifies as an authentication failure
+so it stops for inspection rather than rotating. And the workspace must be trusted
+in Gemini's own project trust store, because in an untrusted folder Gemini silently
+downgrades auto_edit to prompt-for-approval, again exiting 0; a headless run then
+changes nothing while appearing clean, so the adapter fails that closed as a
+permission failure. --sandbox is deliberately not passed: running the agent in a
+container changes how the workspace and progress checkpoint are mounted, and that
+could not be exercised end to end without a live Gemini session.
 
 ## Installation and removal
 
