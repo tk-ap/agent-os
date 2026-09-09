@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-os.local/contracts/browser-runtime-attestation.schema.json",
+  "title": "Browser Runtime Attestation",
+  "description": "Post-run browser enforcement facts. Transport authenticity is established by the adapter and cannot be self-asserted in this payload.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "provider",
+    "session_id",
+    "collected_at",
+    "native_sandbox_active",
+    "profile_ephemeral",
+    "profile_cleanup_verified",
+    "ambient_credential_keys",
+    "observed_network_origins",
+    "network_enforcement",
+    "approval_scope",
+    "approval_id",
+    "approval_expires_at",
+    "evidence_refs"
+  ],
+  "properties": {
+    "provider": {"type": "string", "minLength": 1},
+    "session_id": {"type": "string", "minLength": 1},
+    "collected_at": {"type": "string", "format": "date-time"},
+    "native_sandbox_active": {"type": "boolean"},
+    "profile_ephemeral": {"type": "boolean"},
+    "profile_cleanup_verified": {"type": "boolean"},
+    "ambient_credential_keys": {
+      "type": "array",
+      "items": {"type": "string"},
+      "uniqueItems": true
+    },
+    "observed_network_origins": {
+      "type": "array",
+      "items": {"type": "string", "format": "uri"},
+      "uniqueItems": true
+    },
+    "network_enforcement": {
+      "type": "string",
+      "enum": ["kernel", "destination-locked-proxy", "provider-policy", "none", "unknown"]
+    },
+    "approval_scope": {"type": "string", "enum": ["none", "one-time"]},
+    "approval_id": {"type": ["string", "null"]},
+    "approval_expires_at": {"type": ["string", "null"], "format": "date-time"},
+    "evidence_refs": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "minItems": 1,
+      "uniqueItems": true
+    }
+  }
+}
