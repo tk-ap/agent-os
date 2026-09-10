@@ -23,9 +23,23 @@ snapshot without sending). Source manifest: `registry/workspace-workstreams.json
 ## 3. Sync behavior
 
 - Derives each projection from **current AgentOS state**: the live GitHub issue
-  (title, canonical URL, open/closed → status) plus registry-resolved owner and
-  product. The manifest holds only stable descriptors (summary, stage, next
-  gate, goal ids), never execution progress.
+  (title, canonical URL) plus registry-resolved owner and product. The manifest
+  holds only stable descriptors (summary, stage, next gate, goal ids, and an
+  optional `work_id` link), never execution progress.
+- **Status comes from AgentOS execution state when there is any.** A source may
+  carry an optional `work_id`; when it names a live fleet order, that order's
+  phase decides the status and the issue's open/closed lifecycle is only the
+  fallback. Deriving status from GitHub alone contradicted this routine's own
+  premise that AgentOS is canonical for execution state, and collapsed
+  `waiting_approval`, `blocked` and `review` into a single indistinguishable
+  `ACTIVE`.
+- Status values use the vocabulary ASHWOOD already renders: `workspace/
+  workstreams.mjs` colours `blocked`/`failed` as risk and `waiting_approval`/
+  `review` as a decision, and `workspace/priorities.mjs` surfaces
+  "AgentOS · needs you" for that second group. Emitting only `ACTIVE` and `DONE`
+  meant that path could never fire. `waiting_capacity` maps to `in_progress`
+  rather than a decision: work parked on an exhausted provider resumes on its
+  own and needs nobody.
 - Sends `source_id, source_system, canonical_url, title, summary, product,
   owner, status, stage, next_gate, goal_ids, confidence, metadata, observed_at`.
 - Authenticates with the existing `WORKSPACE_BOARD_SYNC_TOKEN` contract (Bearer).

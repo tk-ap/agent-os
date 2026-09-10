@@ -17,6 +17,7 @@ Design constraints (from the issue):
 from __future__ import annotations
 
 import json
+import sqlite3
 import os
 import re
 import subprocess
@@ -91,9 +92,57 @@ def _gh_issue_state(repo: str, number: int) -> dict[str, Any]:
     return json.loads(proc.stdout)
 
 
+FLEET_DB = ROOT / ".agent-os" / "fleet" / "kanban.db"
+
+# AgentOS execution phase -> the vocabulary ASHWOOD already renders.
+# workspace/workstreams.mjs colours blocked/failed as risk and
+# waiting_approval/review as a decision, and workspace/priorities.mjs surfaces
+# "AgentOS · needs you" for exactly that second group. Sending only ACTIVE and
+# DONE meant that path could never fire: the consumer was waiting for statuses
+# the producer never emitted.
+#
+# waiting_capacity is deliberately in_progress, not a decision. Work parked on
+# an exhausted provider resumes on its own and needs nobody; showing it as
+# needing the operator is the same false alarm the fleet cards were fixed for.
+_PHASE_STATUS = {
+    "queued": "active",
+    "running": "in_progress",
+    "waiting_capacity": "in_progress",
+    "review": "review",
+    "waiting_approval": "waiting_approval",
+    "collision": "blocked",
+    "blocked": "blocked",
+    "denied": "failed",
+    "revoked": "failed",
+    "accepted": "done",
+    "done": "done",
+}
+
+
 def _status_from_issue(state: str) -> str:
     """Derive projection status from the live issue lifecycle."""
-    return {"OPEN": "ACTIVE", "CLOSED": "DONE"}.get(str(state).upper(), "ACTIVE")
+    return {"OPEN": "active", "CLOSED": "done"}.get(str(state).upper(), "active")
+
+
+def _fleet_phase(work_id: str) -> str | None:
+    """Current execution phase of a linked fleet order, or None.
+
+    Read-only and best-effort. The projection must never be the reason the fleet
+    database is opened for writing, and a missing database simply means there is
+    no execution state to project.
+    """
+    if not work_id or not FLEET_DB.exists():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{FLEET_DB}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT phase FROM agent_os_orders WHERE work_id=?", (work_id,)).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    return row[0] if row else None
 
 
 def _resolve_owner(spec: str, agents: dict[str, Any]) -> str:
@@ -136,6 +185,7 @@ def _assert_no_secret(row: dict[str, Any]) -> None:
 
 def build_row(source: dict[str, Any], *, agents: dict[str, Any], routing_text: str,
               issue_fetcher: Callable[[str, int], dict[str, Any]] | None = None,
+              execution_fetcher: Callable[[str], str | None] | None = None,
               now: str | None = None) -> dict[str, Any]:
     # Resolved on call, not bound as a default. A default argument is evaluated
     # once when the module is imported, so patching _gh_issue_state afterwards
@@ -143,6 +193,7 @@ def build_row(source: dict[str, Any], *, agents: dict[str, Any], routing_text: s
     # GitHub API -- passing wherever gh happened to be authenticated and failing
     # everywhere else.
     issue_fetcher = issue_fetcher or _gh_issue_state
+    execution_fetcher = execution_fetcher or _fleet_phase
     repo = source["repo"]
     number = int(source["issue"])
     product = source["product"]
@@ -158,6 +209,15 @@ def build_row(source: dict[str, Any], *, agents: dict[str, Any], routing_text: s
         # hard invariant so a manifest edit cannot silently drop it.
         raise ProjectionError(f"{repo}#{number}: goal_ids must include 'ownership'")
 
+    # AgentOS is canonical for execution state, so a linked fleet order decides
+    # the status and the issue lifecycle is the fallback. A phase with no honest
+    # ASHWOOD equivalent -- superseded, say, where a revision carries the work
+    # forward -- also falls back rather than being forced into a bucket that
+    # would misreport it.
+    phase = execution_fetcher(source.get("work_id") or "")
+    status = _PHASE_STATUS.get(str(phase or ""), None) or _status_from_issue(
+        issue.get("state", "OPEN"))
+
     row = {
         "source_id": _cap("source_id", f"{SOURCE_SYSTEM}#{number}"),
         "source_system": SOURCE_SYSTEM,
@@ -166,7 +226,7 @@ def build_row(source: dict[str, Any], *, agents: dict[str, Any], routing_text: s
         "summary": _cap("summary", source.get("summary")),
         "product": _cap("product", product),
         "owner": _cap("owner", owner),
-        "status": _cap("status", _status_from_issue(issue.get("state", "OPEN"))),
+        "status": _cap("status", status),
         "stage": _cap("stage", source.get("stage")),
         "next_gate": _cap("next_gate", source.get("next_gate")),
         "goal_ids": goal_ids,
@@ -176,6 +236,8 @@ def build_row(source: dict[str, Any], *, agents: dict[str, Any], routing_text: s
             "repo": repo,
             "issue_state": issue.get("state"),
             "owner_spec": source["owner"],
+            "execution_phase": phase,
+            "status_basis": "agent-os execution phase" if phase in _PHASE_STATUS else "github issue lifecycle",
             "derivation": "live GitHub issue state + registry-resolved owner/product",
         },
         "observed_at": now or _utcnow_iso(),
@@ -186,13 +248,15 @@ def build_row(source: dict[str, Any], *, agents: dict[str, Any], routing_text: s
 
 def build_snapshot(manifest: dict[str, Any] | None = None, *,
                    issue_fetcher: Callable[[str, int], dict[str, Any]] | None = None,
+                   execution_fetcher: Callable[[str], str | None] | None = None,
                    now: str | None = None) -> dict[str, Any]:
     issue_fetcher = issue_fetcher or _gh_issue_state
+    execution_fetcher = execution_fetcher or _fleet_phase
     manifest = manifest or load_manifest()
     agents = _load_agents()
     routing_text = ROUTING_FILE.read_text()
     rows = [build_row(s, agents=agents, routing_text=routing_text,
-                      issue_fetcher=issue_fetcher, now=now)
+                      issue_fetcher=issue_fetcher, execution_fetcher=execution_fetcher, now=now)
             for s in manifest["sources"]]
     # replace scoped to this source_system only: ASHWOOD deletes agent-os rows
     # not in this snapshot and leaves every other system's projections intact.

@@ -62,8 +62,8 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(row["canonical_url"], "https://github.com/tk-ap/agent-os/issues/51")
 
     def test_status_derives_from_live_issue_lifecycle(self):
-        self.assertEqual(self.build(fake_issue)["rows"][0]["status"], "ACTIVE")
-        self.assertEqual(self.build(closed_issue)["rows"][0]["status"], "DONE")
+        self.assertEqual(self.build(fake_issue)["rows"][0]["status"], "active")
+        self.assertEqual(self.build(closed_issue)["rows"][0]["status"], "done")
 
     def test_owner_51_is_router_derived(self):
         row = next(r for r in self.build()["rows"] if r["source_id"] == "agent-os#51")
@@ -219,3 +219,71 @@ class DryRunTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExecutionStatusTests(unittest.TestCase):
+    """AgentOS is canonical for execution state, so a linked fleet order decides
+    the status. Deriving it from the GitHub issue alone collapsed every live
+    phase into ACTIVE, so a workstream waiting on TK looked identical to one
+    running fine -- and ASHWOOD, which already renders "AgentOS · needs you" for
+    waiting_approval/review/blocked, could never show it."""
+
+    SOURCE = {"issue": 51, "repo": "tk-ap/agent-os", "product": "ledgato",
+              "owner": "scout", "goal_ids": ["ownership"], "stage": "s",
+              "summary": "x", "next_gate": "g", "confidence": 0.5,
+              "work_id": "some-fleet-work"}
+
+    AGENTS = {"scout": {}, "w-dog": {}, "rook": {}}
+    ROUTING = "products:\n  ledgato:\n    repository: tk-ap/ledgato\n"
+
+    def _row(self, phase, source=None, issue_state="OPEN"):
+        return w.build_row(
+            dict(source or self.SOURCE),
+            agents=self.AGENTS, routing_text=self.ROUTING,
+            issue_fetcher=lambda repo, number: {
+                "title": "t", "url": "https://example.invalid", "state": issue_state},
+            execution_fetcher=lambda work_id: phase)
+
+    def test_a_linked_order_decides_the_status(self):
+        self.assertEqual(self._row("running")["status"], "in_progress")
+        self.assertEqual(self._row("blocked")["status"], "blocked")
+        self.assertEqual(self._row("done")["status"], "done")
+
+    def test_work_waiting_on_tk_reads_as_needing_him(self):
+        """ASHWOOD's priorities.mjs treats these as NEEDS_OWNER and labels the
+        row "AgentOS · needs you"."""
+        needs_owner = {"waiting_approval", "decision_required", "review",
+                       "blocked", "needs_attention"}
+        self.assertIn(self._row("waiting_approval")["status"], needs_owner)
+        self.assertIn(self._row("review")["status"], needs_owner)
+
+    def test_waiting_on_a_provider_does_not_read_as_needing_him(self):
+        """Capacity-parked work resumes on its own. Showing it as a decision is
+        the same false alarm the operator cards were fixed for."""
+        needs_owner = {"waiting_approval", "decision_required", "review",
+                       "blocked", "needs_attention"}
+        self.assertNotIn(self._row("waiting_capacity")["status"], needs_owner)
+
+    def test_an_unmapped_phase_falls_back_to_the_issue(self):
+        """superseded has no honest ASHWOOD equivalent; forcing it into one
+        would misreport it."""
+        self.assertEqual(self._row("superseded")["status"], "active")
+        self.assertEqual(self._row("superseded", issue_state="CLOSED")["status"], "done")
+
+    def test_a_source_with_no_link_uses_the_issue(self):
+        unlinked = dict(self.SOURCE)
+        unlinked.pop("work_id")
+        self.assertEqual(self._row(None, source=unlinked)["status"], "active")
+
+    def test_the_row_records_which_basis_it_used(self):
+        self.assertEqual(self._row("running")["metadata"]["status_basis"],
+                         "agent-os execution phase")
+        self.assertEqual(self._row(None)["metadata"]["status_basis"],
+                         "github issue lifecycle")
+        self.assertEqual(self._row("running")["metadata"]["execution_phase"], "running")
+
+    def test_a_missing_fleet_database_is_not_an_error(self):
+        """The projection must never be the reason the fleet database is opened
+        for writing, and its absence just means no execution state to project."""
+        self.assertIsNone(w._fleet_phase("anything"))
+        self.assertIsNone(w._fleet_phase(""))
