@@ -26,6 +26,45 @@ class ErrorTests(unittest.TestCase):
         event = '{"type":"error","message":"rate_limit_exceeded","retry_after":120}'
         self.assertEqual(harnesses.classify(1, event, ''), ("capacity", 120))
 
+    def test_gemini_untrusted_folder_fails_closed(self):
+        """Gemini downgrades auto_edit to prompt-for-approval in an untrusted
+        folder and still exits 0, so a headless run changes nothing while
+        looking clean. Observed live: 'Approval mode overridden to "default"
+        because the current folder is not trusted.'"""
+        notice = 'Approval mode overridden to "default" because the current folder is not trusted.'
+        self.assertEqual(harnesses.classify(0, notice, "")[0], "permission")
+        self.assertEqual(harnesses.classify(0, "", notice)[0], "permission")
+
+    def test_gemini_missing_auth_is_authentication_not_failure(self):
+        """Also reported at exit 0, so the returncode-gated stderr never sees it.
+        It must stop for inspection rather than rotate to another harness."""
+        notice = ("Please set an Auth method in your /home/tk/.gemini/settings.json "
+                  "or specify one of the following environment variables")
+        self.assertEqual(harnesses.classify(0, "", notice)[0], "authentication")
+
+    def test_gemini_clean_run_still_classifies_as_executed(self):
+        self.assertEqual(harnesses.classify(0, '{"type":"result"}', "")[0], "executed")
+
+    def test_gemini_command_never_bypasses_approval(self):
+        argv = harnesses.command("gemini-cli", ".")
+        self.assertEqual(argv[0], "gemini")
+        self.assertIn("--approval-mode", argv)
+        self.assertEqual(argv[argv.index("--approval-mode") + 1], "auto_edit")
+        self.assertNotIn("-y", argv)
+        self.assertNotIn("--yolo", argv)
+
+    def test_gemini_is_a_selectable_harness(self):
+        self.assertIn("gemini-cli", harnesses.SUPPORTED)
+
+    def test_metered_gemini_credentials_are_stripped(self):
+        """The OAuth login is the subscription path; an API key is metered
+        billing, which this adapter never falls through to."""
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "k", "GOOGLE_GENAI_USE_VERTEXAI": "1",
+                                     "GOOGLE_API_KEY": "k"}):
+            env = harnesses.environment()
+        for key in ("GEMINI_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_API_KEY"):
+            self.assertNotIn(key, env)
+
     def test_permission_and_auth_never_rotate(self):
         self.assertEqual(harnesses.classify(1, '', 'permission denied; usage limit')[0], "permission")
         self.assertEqual(harnesses.classify(1, '', 'authentication failed')[0], "authentication")
@@ -230,7 +269,12 @@ class FleetTests(unittest.TestCase):
         with patch.object(harnesses, "available", return_value=True):
             bridge.worker(self.state, task.id, task.current_run_id, runner)
         conn = bridge.connect(self.state)
-        self.assertEqual(len(calls), 2)
+        # Every eligible harness is tried once before the task parks. Counted
+        # from the registry rather than hardcoded, so adding a harness does not
+        # silently turn this into a weaker assertion.
+        self.assertEqual(len(calls), len(harnesses.SUPPORTED))
+        self.assertEqual(len(set(calls)), len(harnesses.SUPPORTED),
+                         "a harness was retried instead of rotating to the next")
         row = bridge.order_row(conn, task.id)
         self.assertEqual(row["phase"], "waiting_capacity")
         self.assertGreater(row["next_at"], time.time())

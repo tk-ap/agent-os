@@ -9,7 +9,7 @@ execution_bindings:
     entrypoint: adapters/hermes/fleet_cli.py
     dispatcher: hermes_cli.kanban_db_dispatch.dispatch_once
     trigger: hermes-cron-no-agent
-    harnesses: [codex-cli, claude-code]
+    harnesses: [codex-cli, claude-code, gemini-cli]
     scope: local-file-work
     verification: review-required-after-cli-exit
     unavailable: [opencode]
@@ -68,7 +68,7 @@ harnesses:
     id: hermes
     provider: nous-research
     role: operator-harness
-    orchestrates: [codex-cli, claude-code, opencode]
+    orchestrates: [codex-cli, claude-code, gemini-cli, opencode]
     mode: local
     capabilities: [filesystem, git, shell, browser, network, mcp, local-models]
     compatible_hosts: [omarchy]
@@ -103,6 +103,25 @@ harnesses:
     mode: remote
     capabilities: [filesystem, git]
     credential_classes: [provider-api]
+    authority_boundary: policy-controlled
+
+  # Independent capacity. Codex and Claude are the only executors today, so a
+  # single exhausted provider stops the fleet outright; Gemini answers to a
+  # different account and quota pool entirely. Declared filesystem-only on
+  # purpose: approval_mode auto_edit auto-approves edit tools and nothing else,
+  # so a shell or git call would need a confirmation headless execution cannot
+  # give. Capability routing therefore never hands it work it could not finish.
+  gemini-cli:
+    id: gemini-cli
+    provider: google
+    role: sub-harness
+    mode: remote
+    capabilities: [filesystem]
+    credential_classes: [provider-api]
+    constraints:
+      - approval-mode-auto-edit-never-yolo
+      - workspace-must-be-trusted-or-approvals-silently-downgrade
+      - no-shell-or-git-until-the-registry-says-otherwise
     authority_boundary: policy-controlled
 
   opencode:

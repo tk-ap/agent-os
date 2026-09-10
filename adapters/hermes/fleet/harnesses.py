@@ -5,7 +5,7 @@ import re
 import shutil
 
 
-SUPPORTED = ("codex-cli", "claude-code")
+SUPPORTED = ("codex-cli", "claude-code", "gemini-cli")
 
 
 def command(harness, workspace):
@@ -24,6 +24,22 @@ def command(harness, workspace):
                 "--mcp-config", '{"mcpServers":{}}',
                 "--tools", "Read,Write,Edit,Glob,Grep,Bash",
                 "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(git:*),Bash(gh:*)"]
+    if harness == "gemini-cli":
+        # approval_mode auto_edit auto-approves edit tools and nothing else, so
+        # a shell call still needs a confirmation that headless mode cannot give.
+        # That is the per-invocation capability boundary; the registry declares
+        # gemini filesystem-only so routing never hands it git or shell work in
+        # the first place. Two independent limits, matching the other harnesses.
+        #
+        # --sandbox is deliberately not passed. Docker is present, but running
+        # the agent in a container changes how the workspace and the progress
+        # checkpoint are mounted, and that could not be exercised end to end
+        # here (no Gemini auth is configured). Revisit once a live run exists.
+        #
+        # The prompt arrives on stdin like the others; -p appends to stdin
+        # input, so the flag carries only the instruction to read it.
+        return ["gemini", "-p", "Follow the work order supplied on standard input.",
+                "--approval-mode", "auto_edit", "-o", "stream-json"]
     raise ValueError(f"Unsupported harness: {harness}")
 
 
@@ -31,7 +47,10 @@ def environment():
     env = dict(os.environ)
     # Use existing subscription login; never silently fall through to API billing.
     for key in list(env):
-        if key.startswith(("OPENAI_", "ANTHROPIC_", "CLAUDE_CODE_USE_", "HERMES_KANBAN_")):
+        if key.startswith(("OPENAI_", "ANTHROPIC_", "CLAUDE_CODE_USE_", "HERMES_KANBAN_",
+                           # Same rule for Gemini: the OAuth login is the
+                           # subscription path, GEMINI_API_KEY/Vertex are metered.
+                           "GEMINI_API_KEY", "GOOGLE_GENAI_", "GOOGLE_API_KEY")):
             env.pop(key)
     env.pop("CLAUDECODE", None)
     return env
@@ -75,10 +94,22 @@ def classify(returncode, stdout, stderr):
             if isinstance(delay, (int, float)) and not isinstance(delay, bool):
                 retry_after = min(86400, max(60, delay))
     error = "\n".join(errors + ([stderr] if returncode else [])).lower()
+    # Gemini refuses in prose and still exits 0, so its refusals appear in
+    # neither the JSON error events nor the returncode-gated stderr above.
+    # These two strings are specific enough to read from the raw streams.
+    refusal = (stdout + "\n" + stderr).lower()
     if denied_failed or (not completed and re.search(
             r"permission.denied|approval.required|not authorized|sandbox.*denied", error)):
         return "permission", None
-    if re.search(r"authentication|unauthorized|invalid.api.key|login required|not logged in", error):
+    # Gemini reports both of these on stdout/stderr and still exits 0, so
+    # neither returncode nor the generic patterns below would catch them.
+    if re.search(r"approval mode overridden.*not trusted", refusal):
+        # The folder is untrusted, so auto_edit silently became "prompt for
+        # approval" and a headless run can change nothing. Failing closed here
+        # keeps a run that could not act from being recorded as clean work.
+        return "permission", None
+    if re.search(r"set an auth method", refusal) or re.search(
+            r"authentication|unauthorized|invalid.api.key|login required|not logged in", error):
         return "authentication", None
     if re.search(r"rate_limit|rate limit|usage.limit|quota.exceeded|quota exhausted|too many requests|insufficient_quota", error):
         return "capacity", retry_after
