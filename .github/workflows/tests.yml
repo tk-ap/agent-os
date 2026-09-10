@@ -1,0 +1,44 @@
+name: AgentOS Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      # Collection is the thing that actually broke before: one unimportable
+      # module aborts its whole file, so a suite can report "OK" while silently
+      # running a fraction of itself. Fail loudly if that happens again.
+      - name: Verify the whole suite is collectable
+        run: |
+          python - <<'PY'
+          import unittest
+          suite = unittest.defaultTestLoader.discover('tests', pattern='test_*.py')
+          broken = [t for t in unittest.defaultTestLoader.errors]
+          if broken:
+              print("Test modules failed to import:")
+              for error in broken:
+                  print(error)
+              raise SystemExit(1)
+          print(f"Collected {suite.countTestCases()} tests from importable modules.")
+          PY
+
+      - name: Run AgentOS test suite
+        run: python -m unittest discover -s tests -p 'test_*.py' -v

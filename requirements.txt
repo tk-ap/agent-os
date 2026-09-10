@@ -1,0 +1,15 @@
+# Runtime and test dependencies for the Agent OS control plane.
+#
+# Only two packages are imported from outside the standard library: PyYAML for
+# the registries, policies and contracts, and jsonschema for validating work
+# items against contracts/. Everything else the repository imports is either
+# stdlib or comes from the separately installed Hermes agent.
+#
+# Hermes is deliberately absent. It is installed on the operator's machine, not
+# published as a package, and the fleet tests that need it skip themselves when
+# hermes_cli cannot be imported. CI therefore exercises the control plane,
+# contracts and telegram/digest logic, but not the live dispatcher integration.
+#
+# Pinned so a transitive release cannot turn a green suite red without a commit.
+jsonschema==4.26.0
+PyYAML==6.0.3

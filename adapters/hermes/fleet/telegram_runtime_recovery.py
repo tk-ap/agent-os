@@ -76,8 +76,21 @@ def _repair_open_done_mirrors(telegram, conn) -> dict:
     from runtime import backlog as backlog_runtime
 
     root = Path(telegram.ROOT)
-    items = yaml.safe_load((root / "agents/milchik/backlog.yaml").read_text()) or []
-    open_by_id = {item["work_id"]: item for item in items if item.get("status") != "done"}
+    # An unreadable backlog must not take the continuity tick down with it. This
+    # read was unguarded, so a missing or malformed file raised straight through
+    # sync_backlog_to_board into the Milchik tick and stopped the whole loop --
+    # under unattended operation, silently. There is nothing to mirror when the
+    # backlog cannot be read, which is a no-op, not a crash. telegram_operational
+    # _continuity already treats an unreadable backlog this way.
+    try:
+        items = yaml.safe_load((root / "agents/milchik/backlog.yaml").read_text()) or []
+    except (OSError, yaml.YAMLError):
+        return {"repaired": 0, "retried": 0}
+    if not isinstance(items, list):
+        return {"repaired": 0, "retried": 0}
+    open_by_id = {item["work_id"]: item for item in items
+                  if isinstance(item, dict) and item.get("work_id")
+                  and item.get("status") != "done"}
 
     repaired = retried = 0
     for work_id, item in open_by_id.items():

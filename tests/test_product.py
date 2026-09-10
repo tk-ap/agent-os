@@ -8,8 +8,10 @@ from runtime.product import ROUTING_FILE, _products, resolve_product
 
 class ProductRoutingTests(unittest.TestCase):
     def test_ashwood_uses_canonical_repository_binding(self):
+        """tk-ap/tk-ap.github.io was renamed to tk-ap/ashwood-info; GitHub still
+        redirects the old path, so only the registry says which name is current."""
         products = _products(ROUTING_FILE.read_text())
-        self.assertEqual(products["ashwood"]["repository"], "tk-ap/tk-ap.github.io")
+        self.assertEqual(products["ashwood"]["repository"], "tk-ap/ashwood-info")
 
     def test_unresolved_repository_is_not_guessed(self):
         routing = """products:
