@@ -58,13 +58,24 @@ def _harness_context(row):
     except (OSError, ImportError, ValueError, TypeError):
         return selected, needed, [], []
 
+    # A restricted capability makes a harness ineligible for work that did not
+    # ask for it, however well its other capabilities match. Enforcement lives
+    # in enqueue; this has to agree with it, or Milchik reports the routing
+    # working correctly as "a fleet-selection problem" and sends TK looking for
+    # a bug that is the safety rule doing its job.
+    restricted = set(binding.get("restricted_capabilities") or ())
+
     eligible = []
     ineligible = []
     for harness in configured:
         if harness in selected:
             continue
         caps = set((harnesses.get(harness) or {}).get("capabilities") or [])
-        if needed <= caps:
+        withheld = sorted(restricted & caps - needed)
+        if withheld:
+            ineligible.append((harness, [f"holds {c}, which this work did not request"
+                                         for c in withheld]))
+        elif needed <= caps:
             eligible.append(harness)
         else:
             ineligible.append((harness, sorted(needed - caps)))
