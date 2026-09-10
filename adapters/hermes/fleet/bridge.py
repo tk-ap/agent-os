@@ -385,6 +385,24 @@ def _tick(state, dry_run=False):
             elif row["phase"] == "waiting_capacity" and row["next_at"] <= time.time() and authorized(row):
                 if not dry_run:
                     kb.unblock_task(conn, task.id)
+                    # Hermes counts repeated blocks carrying the same reason and
+                    # escalates to triage once the recurrence limit is reached.
+                    # Two capacity parks therefore look like a defect loop, and
+                    # unblock_task clears blocked without clearing triage -- so
+                    # the order returns to phase queued while the board row stays
+                    # invisible to the dispatcher. Observed on 2026-09-09:
+                    # approved work with a valid grant and banked capacity credit
+                    # sat idle for twenty minutes after its provider recovered,
+                    # and the original 2026-09-07 task is still in triage from
+                    # the same cause. Waiting on an exhausted provider is correct
+                    # behaviour, not a loop, so the fleet clears the escalation
+                    # its own parking caused.
+                    board = kb.get_task(conn, task.id)
+                    if board is not None and board.status == "triage":
+                        conn.execute("UPDATE tasks SET status='ready', consecutive_failures=0 "
+                                     "WHERE id=?", (task.id,))
+                        emit(conn, task.id, "triage_cleared",
+                             {"reason": "capacity parking is not a block loop"})
                     banked = capacity_credit(row)
                     conn.execute("""UPDATE agent_os_orders SET phase='queued',
                         capacity_credit=?, capacity_blocked_at=0 WHERE task_id=?""",
@@ -670,7 +688,14 @@ def worker(state, task_id, run_id, runner=run_cli):
                             THEN capacity_blocked_at ELSE ? END
                         WHERE task_id=?""",
                         (due or time.time() + 3600, time.time(), task_id))
-                    stop(conn, task_id, "waiting_capacity", "Eligible harnesses unavailable; resume after cooldown", run_id)
+                    # Name the resume time rather than repeating one fixed
+                    # sentence. It is better for the operator, and consecutive
+                    # capacity waits stop presenting to Hermes as the identical
+                    # block recurring, which is what triggers its loop detector.
+                    due_at = due or time.time() + 3600
+                    stop(conn, task_id, "waiting_capacity",
+                         "Eligible harnesses unavailable; resume at "
+                         + time.strftime("%H:%M", time.localtime(due_at)), run_id)
                     emit(conn, task_id, "phase", {"phase": "waiting_capacity"})
                     return
                 name = candidates[0]

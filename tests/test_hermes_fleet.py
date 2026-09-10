@@ -492,6 +492,61 @@ class FleetTests(unittest.TestCase):
         self.assertTrue(bridge.authorized(row))
         conn.close()
 
+    def test_unparking_recovers_a_task_hermes_escalated_to_triage(self):
+        """Hermes counts repeated blocks with the same reason and escalates to
+        triage at its recurrence limit, so two capacity waits read as a defect
+        loop. unblock_task clears blocked, not triage, so the order returned to
+        queued while the board row stayed invisible to the dispatcher: on
+        2026-09-09 approved work with a valid grant and banked credit sat idle
+        for twenty minutes after its provider recovered."""
+        task = self.claimed()
+        def runner(argv, prompt, workspace, out, err, timeout, alive):
+            out.write_text('{"type":"error","message":"rate limit"}'); err.write_text(''); return 1
+        with patch.object(harnesses, "available", return_value=True):
+            bridge.worker(self.state, task.id, task.current_run_id, runner)
+        conn = bridge.connect(self.state)
+        conn.execute("UPDATE agent_os_orders SET next_at=? WHERE task_id=?",
+                     (time.time() - 1, task.id))
+        # Hermes escalates the repeated capacity block.
+        conn.execute("UPDATE tasks SET status='triage' WHERE id=?", (task.id,))
+        conn.commit()
+        conn.close()
+        bridge.tick(self.state)
+        conn = bridge.connect(self.state)
+        try:
+            status = kb.get_task(conn, task.id).status
+            self.assertNotEqual(status, "triage",
+                                "the order was requeued but the board row stayed unreachable")
+            # Recovered and immediately dispatchable: the same tick may already
+            # have claimed it, which is the outcome this exists to restore.
+            self.assertIn(status, {"ready", "running"})
+            kinds = [e[0] for e in conn.execute(
+                "SELECT kind FROM agent_os_events WHERE task_id=?", (task.id,)).fetchall()]
+            self.assertIn("triage_cleared", kinds)
+        finally:
+            conn.close()
+
+    def test_consecutive_capacity_waits_are_not_the_identical_block(self):
+        """The loop detector compares reasons. Naming the resume time is better
+        for the operator and stops two correct waits looking like one defect."""
+        task = self.claimed()
+        def runner(argv, prompt, workspace, out, err, timeout, alive):
+            out.write_text('{"type":"error","message":"rate limit"}'); err.write_text(''); return 1
+        with patch.object(harnesses, "available", return_value=True):
+            bridge.worker(self.state, task.id, task.current_run_id, runner)
+        conn = bridge.connect(self.state)
+        try:
+            reasons = [r[0] for r in conn.execute(
+                """SELECT payload FROM task_events WHERE task_id=? AND kind='blocked'""",
+                (task.id,)).fetchall()]
+            blocked = [r for r in conn.execute(
+                "SELECT payload FROM task_events WHERE task_id=?", (task.id,)).fetchall()]
+            text = " ".join(str(r[0]) for r in blocked)
+            self.assertIn("resume at", text)
+            self.assertNotIn("resume after cooldown", text)
+        finally:
+            conn.close()
+
     def test_unparking_banks_the_credit_and_stops_the_clock(self):
         task = self.claimed()
         def runner(argv, prompt, workspace, out, err, timeout, alive):
