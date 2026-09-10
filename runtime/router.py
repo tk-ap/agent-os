@@ -2,6 +2,7 @@ from pathlib import Path
 import re
 
 from runtime.task import Task
+from runtime.harness_router import route_harness
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENTS_FILE = ROOT / "registry" / "agents.yaml"
@@ -53,18 +54,21 @@ def route_task(task: Task):
     if agent not in agents:
         raise RuntimeError(f"Agent '{agent}' is not present in registry/agents.yaml")
     task.agent = agent
-    if task.task_class == "verification":
-        return {
-            "task": task.to_dict(),
-            "agent": agent,
-            "role": "Independent Verifier",
-            "ownership": ["independent-verification", "provider-readback", "attestation"],
-            "mode": "INDEPENDENT VERIFICATION",
-        }
-    return {
+
+    harness = route_harness(task)
+    result = {
         "task": task.to_dict(),
         "agent": agent,
         "role": agents[agent].get("role"),
         "ownership": agents[agent].get("owns", []),
         "mode": "AUTONOMOUS + AUDIT",
+        "harness": harness,
     }
+
+    if task.task_class == "verification":
+        result.update({
+            "role": "Independent Verifier",
+            "ownership": ["independent-verification", "provider-readback", "attestation"],
+            "mode": "INDEPENDENT VERIFICATION",
+        })
+    return result

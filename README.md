@@ -130,6 +130,21 @@ adapter's scope.
 
 Run `python adapters/hermes/fleet_cli.py status` to inspect the queue.
 
+## Testing
+
+Install the pinned dependencies once, then run the suite:
+
+```bash
+python3 -m pip install -r requirements.txt
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+GitHub Actions runs the same command on every pull request and on pushes to
+`main`, after a collection gate that fails the build if any test module cannot
+be imported. Tests that need the installed Hermes agent skip themselves when
+`hermes_cli` is unavailable, so a green run locally and in CI cover different
+amounts of the suite; the skip count in the output says how much.
+
 ## Design Principles
 
 **Task is primary. Identity is stable. Capability is composable. Product boundaries are explicit. Context is least-privilege. Authority is explicit. Execution is host-agnostic. Evidence closes the loop.**

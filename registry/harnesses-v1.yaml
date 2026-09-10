@@ -1,0 +1,33 @@
+harnesses:
+  hermes:
+    role: coordinator
+    cost_tier: low
+    intelligence_tier: low
+    capabilities: [summarize, classify, route, explain, monitor, inspection]
+  codex:
+    role: executor
+    cost_tier: premium
+    intelligence_tier: premium
+    capabilities: [implementation, debugging, testing, repository_change]
+  claude:
+    role: reviewer
+    cost_tier: premium
+    intelligence_tier: premium
+    capabilities: [independent_verification, architecture_review, adversarial_review, security_review]
+  # Redundant capacity rather than a second route to the same limit: Gemini
+  # answers to a different account and quota pool than Codex or Claude, so one
+  # exhausted provider no longer stops the fleet. Deliberately filesystem-only:
+  # approval_mode auto_edit auto-approves edit tools and nothing else, so a
+  # shell or git call needs a confirmation headless execution cannot give.
+  gemini:
+    role: executor
+    cost_tier: low
+    intelligence_tier: standard
+    capabilities: [filesystem_change, inspection]
+    constraints: [no-shell, no-git, workspace-must-be-trusted]
+
+# Note: nothing reads this file. registry/harnesses.yaml is what the fleet
+# actually enforces capability routing from at enqueue time, and
+# runtime/harness_router.py names its candidates in code rather than loading
+# either registry. Two registries describing the same harnesses is a standing
+# trap -- this one is now accurate, but accuracy here is maintained by hand.
