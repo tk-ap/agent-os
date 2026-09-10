@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from runtime.server import _prepare, _status
 from runtime.store import TaskStore
@@ -8,7 +9,16 @@ from runtime.store import TaskStore
 
 class TaskApiTests(unittest.TestCase):
     def test_inspection_completes_with_repository_evidence(self):
-        payload = _prepare("inspect ailhat")
+        def github_fixture(path):
+            if "/contents?ref=main" in path:
+                return [{"name": "README.md", "type": "file", "path": "README.md"}]
+            return {"default_branch": "main", "private": False}
+
+        with (
+            patch("runtime.product._repo_exists", return_value=False),
+            patch("runtime.executor._gh_api", side_effect=github_fixture),
+        ):
+            payload = _prepare("inspect ailhat")
         self.assertEqual(payload["product_resolution"]["product_key"], "ailhat")
         self.assertEqual(_status(payload), "COMPLETED")
         self.assertEqual(payload["verification"]["status"], "VERIFIED")
