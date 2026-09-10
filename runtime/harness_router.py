@@ -16,6 +16,17 @@ ROUTING_POLICY = ROOT / "policies" / "harness-routing.yaml"
 # break ties; it never overrides the policy default or the independence rule.
 _TIER_RANK = {"premium": 0, "standard": 1, "low": 2}
 
+# What a task class actually requires of a harness. A fallback list is a claim of
+# substitutability, not a list of names: the fleet learned this concretely when
+# work needing a shell had exactly one eligible executor while two other
+# harnesses sat in the registry looking like alternatives. A class absent here
+# imposes no capability requirement.
+_CLASS_REQUIRES = {
+    "implementation": "implementation",
+    "verification": "independent_verification",
+    "inspection": "inspection",
+}
+
 
 @dataclass(frozen=True)
 class HarnessDecision:
@@ -56,9 +67,19 @@ def _tier(harness: str) -> str:
     return str(_registry().get(harness, {}).get("intelligence_tier") or "low")
 
 
-def _ordered(preferred: str | None = None) -> list[str]:
-    """Registered harnesses, the policy's preference first, then by tier."""
+def _capable(harness: str, task_class: str) -> bool:
+    """Whether this harness declares what the task class needs."""
+    required = _CLASS_REQUIRES.get(task_class)
+    if required is None:
+        return True
+    return required in (_registry().get(harness, {}).get("capabilities") or [])
+
+
+def _ordered(preferred: str | None = None, task_class: str | None = None) -> list[str]:
+    """Registered harnesses able to do the work: preference first, then by tier."""
     names = sorted(_registry(), key=lambda h: (_TIER_RANK.get(_tier(h), 99), h))
+    if task_class is not None:
+        names = [h for h in names if _capable(h, task_class)]
     if preferred in names:
         names.remove(preferred)
         names.insert(0, preferred)
@@ -76,10 +97,18 @@ def route_harness(task: Task) -> dict:
 
     if task.task_class == "verification":
         material = set(ctx.get("author_harnesses", [])) | set(ctx.get("material_harnesses", []))
-        candidates = [h for h in _ordered(defaults.get("verification")) if h not in material]
+        candidates = [h for h in _ordered(defaults.get("verification"), "verification")
+                      if h not in material]
         if not candidates:
+            # Fail closed, and say which half is missing. "No harness is both
+            # capable of independent verification and uninvolved" is a real
+            # workforce gap; quietly substituting a harness that does not declare
+            # the capability would produce a verdict the registry does not
+            # support.
             raise RuntimeError(
-                "No independent execution harness is available; verification must remain BLOCKED")
+                "No independent execution harness is available; verification must remain BLOCKED "
+                f"(capable: {sorted(h for h in _registry() if _capable(h, 'verification'))}; "
+                f"materially involved: {sorted(material)})")
         chosen = candidates[0]
         return HarnessDecision(
             harness=chosen,
@@ -94,7 +123,7 @@ def route_harness(task: Task) -> dict:
             harness=chosen,
             intelligence_tier=_tier(chosen),
             reason="repository_or_implementation_change",
-            fallback=[h for h in _ordered() if h != chosen],
+            fallback=[h for h in _ordered(task_class="implementation") if h != chosen],
         ).to_dict()
 
     if task.task_class == "inspection":
@@ -103,7 +132,7 @@ def route_harness(task: Task) -> dict:
             harness=chosen,
             intelligence_tier=_tier(chosen),
             reason="routine_inspection_or_status",
-            fallback=[h for h in _ordered() if h != chosen],
+            fallback=[h for h in _ordered(task_class="inspection") if h != chosen],
         ).to_dict()
 
     chosen = defaults.get("coordination") or _ordered()[-1]

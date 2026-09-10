@@ -123,6 +123,22 @@ class TaskStore:
             )
             self._event(conn, task_id, "ROUTED", decision)
 
+    #: The outcome classes an attempt may record. Free-form outcomes hid the one
+    #: distinction that matters: which failures justify trying another harness.
+    EXECUTION_OUTCOMES = frozenset(
+        {"executed", "capacity", "permission", "authentication", "failed", "timeout"})
+    #: Only a provider refusing for usage/quota reasons is worth retrying
+    #: elsewhere, because it is the only class where a different provider would
+    #: behave differently. Rotating on a permission or authentication failure
+    #: repeats it on every harness in turn and spends the attempt budget for
+    #: nothing.
+    ROTATABLE_OUTCOMES = frozenset({"capacity"})
+
+    @classmethod
+    def rotatable(cls, outcome: str) -> bool:
+        """Whether this outcome justifies rotating to another harness."""
+        return outcome in cls.ROTATABLE_OUTCOMES
+
     def record_execution_attempt(
         self,
         task_id: str,
@@ -134,7 +150,17 @@ class TaskStore:
         outcome: str,
         payload: dict[str, Any] | None = None,
     ):
-        """Persist an execution attempt independently of the task's durable lifecycle state."""
+        """Persist an execution attempt independently of the task's durable lifecycle state.
+
+        The outcome must name one of EXECUTION_OUTCOMES, and it must be derived
+        from what the harness produced rather than from a status it reports about
+        itself or from an exit code alone: a harness can refuse and still exit
+        zero, and a run that could not act must not be recorded as one that did.
+        """
+        if outcome not in self.EXECUTION_OUTCOMES:
+            raise ValueError(
+                f"Unknown execution outcome {outcome!r}; expected one of "
+                f"{sorted(self.EXECUTION_OUTCOMES)}")
         data = payload or {}
         data.update(
             {
@@ -143,6 +169,9 @@ class TaskStore:
                 "harness": harness,
                 "intelligence_tier": intelligence_tier,
                 "outcome": outcome,
+                # Recorded rather than re-derived later, so the reason a task did
+                # or did not move to another harness stays in the evidence trail.
+                "rotatable": self.rotatable(outcome),
             }
         )
         with self._connect() as conn:
