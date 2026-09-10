@@ -344,6 +344,33 @@ def order_row(conn, task_id):
     return conn.execute("SELECT * FROM agent_os_orders WHERE task_id=?", (task_id,)).fetchone()
 
 
+def resume_board(conn, task_id):
+    """Make a task the fleet deliberately parked dispatchable again.
+
+    Hermes counts blocks per task, not per reason, and escalates to triage at
+    its recurrence limit. The fleet uses blocks as ordinary lifecycle states --
+    an approval gate, a capacity wait -- so any task that parks more than twice
+    is escalated as a defect loop and becomes invisible to the dispatcher.
+    Observed on 2026-09-09 on one task: recurrence 1 for an approval park,
+    2 for a capacity park, 3 for the next approval park.
+
+    unblock_task clears blocked and not triage, so every fleet path that resumes
+    its own park has to clear the escalation that park caused. Varying the block
+    reason does not help and was mistakenly claimed to: the counter ignores the
+    reason entirely.
+    """
+    from hermes_cli import kanban_db as kb
+    kb.unblock_task(conn, task_id)
+    board = kb.get_task(conn, task_id)
+    if board is not None and board.status == "triage":
+        conn.execute("UPDATE tasks SET status='ready', consecutive_failures=0 WHERE id=?",
+                     (task_id,))
+        emit(conn, task_id, "triage_cleared",
+             {"reason": "a governed park is not a block loop"})
+        return True
+    return False
+
+
 def stop(conn, task_id, phase, reason, run_id=None):
     from hermes_cli import kanban_db as kb
     task = kb.get_task(conn, task_id)
@@ -384,7 +411,7 @@ def _tick(state, dry_run=False):
                     stop(conn, task.id, "revoked", "Authority expired, revoked, or payload changed")
             elif row["phase"] == "waiting_capacity" and row["next_at"] <= time.time() and authorized(row):
                 if not dry_run:
-                    kb.unblock_task(conn, task.id)
+                    resume_board(conn, task.id)
                     # Hermes counts repeated blocks carrying the same reason and
                     # escalates to triage once the recurrence limit is reached.
                     # Two capacity parks therefore look like a defect loop, and
@@ -397,12 +424,6 @@ def _tick(state, dry_run=False):
                     # the same cause. Waiting on an exhausted provider is correct
                     # behaviour, not a loop, so the fleet clears the escalation
                     # its own parking caused.
-                    board = kb.get_task(conn, task.id)
-                    if board is not None and board.status == "triage":
-                        conn.execute("UPDATE tasks SET status='ready', consecutive_failures=0 "
-                                     "WHERE id=?", (task.id,))
-                        emit(conn, task.id, "triage_cleared",
-                             {"reason": "capacity parking is not a block loop"})
                     banked = capacity_credit(row)
                     conn.execute("""UPDATE agent_os_orders SET phase='queued',
                         capacity_credit=?, capacity_blocked_at=0 WHERE task_id=?""",

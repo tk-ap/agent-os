@@ -20,7 +20,7 @@ import time
 import urllib.error
 import urllib.request
 
-from .bridge import DEFAULT_STATE, ROOT, connect, lock, order_row
+from .bridge import DEFAULT_STATE, ROOT, connect, lock, order_row, resume_board
 
 CONFIG = Path.home() / ".hermes" / "agent-os-telegram.json"
 
@@ -1966,7 +1966,10 @@ def decide(conn, config, query, state=None):
                          (task.id, row["work_id"], scope, config["user_id"],
                           time.time(), time.time() + 86400))
             conn.execute("UPDATE agent_os_orders SET phase='queued' WHERE task_id=?", (task.id,))
-            kb.unblock_task(conn, task.id)
+            # Clears any triage escalation the approval park itself caused; an
+            # approved task that stays in triage is queued and undispatchable,
+            # which reads to TK as the approval having done nothing.
+            resume_board(conn, task.id)
             emit(conn, task.id, "grant_approved", {"scope": short(scope, 300), "ttl": 86400})
             result = "Approved. The task resumes under the scoped grant; everything else stays blocked."
         else:

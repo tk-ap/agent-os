@@ -180,6 +180,25 @@ class ApprovalGateTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_approving_recovers_a_task_escalated_to_triage(self):
+        """The approval park itself counts toward Hermes' block recurrence
+        limit, so a task can be sitting in triage at the moment TK approves it.
+        Without clearing that, the task goes to phase queued and stays
+        undispatchable -- which reads as the approval having done nothing."""
+        conn, task_id = self._parked()
+        try:
+            telegram.schema(conn)
+            conn.execute("UPDATE tasks SET status='triage' WHERE id=?", (task_id,))
+            conn.commit()
+            config, query = self._card(conn, task_id, "approve")
+            result = telegram.decide(conn, config, query)
+            self.assertIn("Approved", result)
+            self.assertNotEqual(kb.get_task(conn, task_id).status, "triage",
+                                "an approved task was left undispatchable")
+            self.assertEqual(bridge.order_row(conn, task_id)["phase"], "queued")
+        finally:
+            conn.close()
+
     def test_a_lapsed_grant_asks_again_instead_of_stalling_silently(self):
         """The trap: a grant that lapses before any harness is free sends the
         task back to waiting_approval without touching attempts, and the files
