@@ -106,6 +106,44 @@ class ErrorTests(unittest.TestCase):
         for key in ("GEMINI_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_API_KEY"):
             self.assertNotIn(key, env)
 
+    def test_a_reset_time_stated_in_prose_is_honoured(self):
+        """Codex names the reset in its message rather than a structured field:
+        "try again at 9:58 PM". classify() only read a numeric retry_after, so an
+        eleven-minute wait became the one-hour default -- on approved work with
+        no other eligible harness to rotate to."""
+        import datetime
+        now = datetime.datetime(2026, 9, 9, 21, 47, 31)
+        message = ("You've hit your usage limit. Upgrade to Pro or try again at 9:58 PM.")
+        self.assertAlmostEqual(harnesses.retry_at_from_message(message, now=now), 629.0, delta=1)
+
+    def test_a_reset_time_already_past_today_means_tomorrow(self):
+        import datetime
+        now = datetime.datetime(2026, 9, 9, 23, 30, 0)
+        delay = harnesses.retry_at_from_message("try again at 9:58 PM", now=now)
+        self.assertGreater(delay, 80000)
+        self.assertLessEqual(delay, 86400)
+
+    def test_midnight_and_noon_are_not_confused(self):
+        import datetime
+        now = datetime.datetime(2026, 9, 9, 10, 0, 0)
+        self.assertAlmostEqual(harnesses.retry_at_from_message("try again at 12:30 PM", now=now),
+                               2 * 3600 + 30 * 60, delta=1)
+        self.assertGreater(harnesses.retry_at_from_message("try again at 12:30 AM", now=now),
+                           14 * 3600)
+
+    def test_no_stated_time_means_no_guess(self):
+        self.assertIsNone(harnesses.retry_at_from_message("You've hit your usage limit."))
+        self.assertIsNone(harnesses.retry_at_from_message("try again at 99:99"))
+
+    def test_a_structured_retry_after_still_wins(self):
+        event = ('{"type":"error","message":"rate_limit_exceeded; try again at 9:58 PM",'
+                 '"retry_after":120}')
+        self.assertEqual(harnesses.classify(1, event, ''), ("capacity", 120))
+
+    def test_capacity_without_any_stated_reset_returns_no_delay(self):
+        self.assertEqual(harnesses.classify(1, '{"type":"error","message":"rate limit"}', ''),
+                         ("capacity", None))
+
     def test_permission_and_auth_never_rotate(self):
         self.assertEqual(harnesses.classify(1, '', 'permission denied; usage limit')[0], "permission")
         self.assertEqual(harnesses.classify(1, '', 'authentication failed')[0], "authentication")
