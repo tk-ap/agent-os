@@ -117,6 +117,19 @@ ailhat is the first internal pilot. ALVIRA / MeOS supplies relevant durable cont
 
 `adapters/cto-new/` defines how Agent OS operates when a cto.new project has access to both a product repository and this repository. The product repository remains authoritative for product-specific rules; Agent OS is authoritative for shared workforce policy, routing, handoffs, governance contracts, and approved skills.
 
+## Executable Hermes Work Orders
+
+The [Hermes fleet adapter](adapters/hermes/fleet/README.md) connects approved
+work-item JSON to the installed Hermes dispatcher. A no-model Hermes cron tick
+launches Codex CLI, restricted Claude Code, or filesystem-only Gemini CLI
+workers, preserves file checkpoints, rotates on usage-limit errors, and parks
+exhausted work until capacity returns. Time spent parked does not count against
+the operator's mandate, so a provider cooldown cannot expire approved work that
+never ran. CLI results enter review; publication and deployment are outside this
+adapter's scope.
+
+Run `python adapters/hermes/fleet_cli.py status` to inspect the queue.
+
 ## Design Principles
 
 **Task is primary. Identity is stable. Capability is composable. Product boundaries are explicit. Context is least-privilege. Authority is explicit. Execution is host-agnostic. Evidence closes the loop.**
