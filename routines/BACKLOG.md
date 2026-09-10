@@ -22,6 +22,35 @@ What is deferred is only ergonomics: a delivery channel that actively notifies T
 
 **Scope boundary if this is ever picked up:** it covers *notifying TK that a cross-post is pending*. It does not cover sending to subscribers. An automated notification is not a step toward automated distribution, and building one grants no authority over the Substack surface — §09's boundary holds regardless of how convenient the handoff becomes.
 
+## Radar — ALVIRA as an on-ramp to a customer's own Agent OS
+
+*Parked 2026-09-08 at TK's direction: "we should make that a separate think tank of a project."*
+
+The question is whether ALVIRA should be positioned as the path by which a customer stands up
+their own agent control plane, rather than only producing context that some other runtime
+consumes.
+
+The pieces already exist and interlock. Build Brief turns maintained context into a portable
+specification for whichever AI builder or agentic environment the user prefers, which is
+already the "be the format, not the platform" answer. ailhat already emits Drift as one of
+its four intelligence outputs. `contracts/context-envelope.schema.json` already pins
+`context_origin` to `alvira-context`.
+
+The argument against making it the entry point: it is the largest category a customer could
+be asked to learn, and it directly opposes the near-term direction ratified the same day —
+failure-triggered Context correction wins precisely because the user has to adopt nothing.
+Both stories on one homepage produces the abstract positioning the Littlebird memo warns
+about in 8.1. There is also a resourcing reality: provisioning customer agent infrastructure
+is a support burden, not a feature.
+
+Working shape if picked up: front door is "your AI keeps getting you wrong"; hallway is
+Build Brief; Agent OS is a door at the end that people already running agents *discover*,
+offered as a reference implementation rather than a provisioned service.
+
+**Not started.** Scope boundary: this is a positioning and sequencing question, not
+authorization to build agent-provisioning features. The ailhat-culls-Agent-OS-members-per-project
+idea is explicitly out of scope until a user reports the problem it solves.
+
 ## Radar — Telegram / Mr. Milchik connection to Agent OS
 
 *Raised 2026-09-06. Parked, not started.*
