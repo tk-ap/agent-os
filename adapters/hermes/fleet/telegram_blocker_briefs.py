@@ -143,6 +143,21 @@ def _blocked_message(row):
     )
 
 
+def approval_card_covers(conn, row) -> bool:
+    """Whether an approval card already asks TK about this exact parked task.
+
+    A task parked at a protected boundary produced two private cards: the
+    approval card with the decision and its buttons, and a blocker brief whose
+    entire payload was "review the approval card in this chat". Two
+    notifications, one of which exists only to point at the other.
+    """
+    if row["phase"] != "waiting_approval":
+        return False
+    return bool(conn.execute(
+        "SELECT 1 FROM telegram_cards WHERE task_id=? AND event_key LIKE 'approval:%' LIMIT 1",
+        (row["task_id"],)).fetchone())
+
+
 def collect_blocker_briefs(conn):
     """Emit one private blocker card per meaningful state transition/attempt."""
     rows = conn.execute(
@@ -153,6 +168,8 @@ def collect_blocker_briefs(conn):
     created = 0
     for row in rows:
         phase = row["phase"]
+        if approval_card_covers(conn, row):
+            continue
         key = f"blocker:{row['task_id']}:{phase}:{row['attempts']}"
         if conn.execute("SELECT 1 FROM telegram_cards WHERE event_key=?", (key,)).fetchone():
             continue

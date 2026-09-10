@@ -413,6 +413,9 @@ def read_inspection_verdicts(conn, state):
 MAX_REVISION_CYCLES = 2
 # How many times one task+phase+attempt may be re-carded as its files change.
 MAX_CARD_REFRESHES = 3
+# The monitor supergroup is silenced. Set True only when someone other than TK
+# is in it; until then it duplicates his own inbox with non-actionable traffic.
+MONITOR_CHANNEL_ENABLED = False
 # One re-inspection for an unreadable verdict. A second failure is a real
 # signal -- the inspector cannot produce a readable judgement -- and belongs
 # with TK rather than in another loop.
@@ -732,6 +735,16 @@ def collect_approval_requests(conn, state):
         except (OSError, ValueError):
             pass
         scope = short(request.get("scope") or "unspecified scope", 400)
+        # Older checkpoints carry only the technical scope. Fall back to it
+        # rather than rendering an empty section, but the plain sentences are
+        # what the card leads with when the worker supplies them.
+        will = short(request.get("will") or "", 300)
+        will_not = short(request.get("will_not") or "", 300)
+        product = ""
+        try:
+            product = str(json.loads(row["payload"]).get("owning_product") or "")
+        except (ValueError, TypeError):
+            pass
         stamp = None
         try:
             stamp = fingerprint(row)
@@ -749,7 +762,20 @@ def collect_approval_requests(conn, state):
         key = f"approval:{row['task_id']}:{row['attempts']}:{stamp}"
         if reasks:
             key += f":r{reasks}"
-        text = f"{badge(row['owning_agent'])} stopped at a protected boundary. **Your call.**\n\n"
+        headline = f"{badge(row['owning_agent'])} needs your OK"
+        if product:
+            headline = f"**{product}** — " + headline
+        text = f"{headline}\n\n"
+        if will:
+            # Lead with what would happen, in the worker's plain sentence. The
+            # precise scope is what gets enforced, but it is an engineering bound
+            # written for a machine, and asking someone to approve that paragraph
+            # is asking them to press a button they cannot read.
+            text += f"**It wants to**\n  {will}\n\n"
+            if will_not:
+                text += f"**It will not**\n  {will_not}\n\n"
+        else:
+            text += f"**What it needs**\n  {scope}\n\n"
         if reasks:
             # Never let this read as though TK failed to answer the first time.
             text = (f"{badge(row['owning_agent'])} needs this approved again. "
@@ -759,14 +785,15 @@ def collect_approval_requests(conn, state):
                     "  ran out before any harness was free to do the work, so the task\n"
                     "  parked rather than run on lapsed authority. Nothing was done\n"
                     "  under the old grant.\n\n")
-        text += f"**WHAT IT NEEDS**\n  {scope}\n\n"
-        text += f"**WHY**\n  {short(request.get('reason') or 'No reason given.', 320)}\n\n"
-        text += "**IF YOU APPROVE**\n"
-        text += f"  A scoped grant, expires in {GRANT_TTL // 3600} hours. The same task resumes\n"
-        text += "  with ONLY that scope added. Everything else stays forbidden.\n\n"
-        text += "**IF YOU DENY**\n"
-        text += "  The task ends, and the denial is recorded with the work.\n\n"
+        text += f"**Why it is stuck**\n  {short(request.get('reason') or 'No reason given.', 320)}\n\n"
+        text += (f"**Yes** — it does exactly that, for {GRANT_TTL // 3600} hours, then carries on\n"
+                 "  with the same job. Nothing else is unlocked.\n")
+        text += "**No** — this job stops here. Nothing it has already done is lost.\n\n"
         text += "Nothing happens either way until you press one."
+        if will:
+            # Kept, and kept last: this is the text that is actually enforced, so
+            # it has to be available without being the thing you must read first.
+            text += f"\n\nExact scope, for the record:\n  {scope}"
         conn.execute("""INSERT OR IGNORE INTO telegram_cards
             (id,event_key,task_id,snapshot,expires,message,scope) VALUES (?,?,?,?,?,?,?)""",
             (secrets.token_urlsafe(12), key, row["task_id"], stamp, time.time()+GRANT_TTL,
@@ -2029,6 +2056,19 @@ def deliver(conn, config, api):
             conn.execute("UPDATE telegram_cards SET delivery='expired' WHERE id=?", (card["id"],))
             continue
         channel = card["channel"]
+        if channel == "monitor" and not MONITOR_CHANNEL_ENABLED:
+            # The monitor supergroup held TK and the bot and nothing else, so it
+            # was a second inbox for the same person carrying only the messages
+            # that explicitly need no action -- 161 of 270 cards. A push channel
+            # whose whole content is "this does not need you" costs attention and
+            # returns nothing. The lifecycle record lives in agent_os_events and
+            # the daily digest, neither of which depends on this.
+            #
+            # Suppressed rather than left pending, so nothing accumulates
+            # undelivered, and re-enabling is one constant when a second person
+            # is actually in the room to read it.
+            conn.execute("UPDATE telegram_cards SET delivery='suppressed' WHERE id=?", (card["id"],))
+            continue
         chat_id = config.get("monitor_chat_id") if channel == "monitor" else config["chat_id"]
         if not chat_id:
             # Monitor channel not yet paired: leave pending, never fall back to the private chat.

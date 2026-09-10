@@ -23,6 +23,8 @@ def collect_refresh_cards(conn):
     created = 0
     for row in rows:
         phase = row["phase"]
+        if briefs.approval_card_covers(conn, row):
+            continue
         key = f"blocker-conversational-v2:{row['task_id']}:{phase}:{row['attempts']}"
         if conn.execute("SELECT 1 FROM telegram_cards WHERE event_key=?", (key,)).fetchone():
             continue

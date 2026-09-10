@@ -5,6 +5,7 @@ import unittest
 
 from adapters.hermes.fleet.telegram_blocker_briefs import collect_blocker_briefs
 from adapters.hermes.fleet.telegram_blocker_brief_migration import collect_refresh_cards
+from adapters.hermes.fleet.telegram_blocker_briefs import approval_card_covers
 
 
 class MilchikBlockerBriefTests(unittest.TestCase):
@@ -59,6 +60,38 @@ class MilchikBlockerBriefTests(unittest.TestCase):
                 next_at,
             ),
         )
+
+    def test_no_blocker_brief_when_an_approval_card_already_asks(self):
+        """A parked approval sent two private cards: the one with the decision
+        and its buttons, and a brief whose entire content was "review the
+        approval card in this chat". One notification per thing to decide."""
+        self._insert("waiting_approval")
+        self.conn.execute(
+            """INSERT INTO telegram_cards(id,event_key,task_id,expires,message,channel)
+               VALUES ('a1','approval:t-proof:1:stamp','t-proof',?,'decide me','private')""",
+            (time.time() + 600,))
+        self.assertEqual(collect_blocker_briefs(self.conn), 0)
+        self.assertEqual(collect_refresh_cards(self.conn), 0)
+        self.assertEqual(
+            self.conn.execute("SELECT COUNT(*) FROM telegram_cards").fetchone()[0], 1)
+
+    def test_a_brief_is_still_sent_when_nothing_else_asks(self):
+        """The deferral is to the approval card, not a silencing of blockers."""
+        self._insert("waiting_approval")
+        self.assertEqual(collect_blocker_briefs(self.conn), 1)
+
+    def test_other_blocked_states_are_unaffected(self):
+        for phase in ("waiting_capacity", "blocked", "collision"):
+            self.setUp()
+            self._insert(phase)
+            self.conn.execute(
+                """INSERT INTO telegram_cards(id,event_key,task_id,expires,message,channel)
+                   VALUES ('a1','approval:t-proof:1:stamp','t-proof',?,'x','private')""",
+                (time.time() + 600,))
+            self.assertFalse(approval_card_covers(
+                self.conn,
+                self.conn.execute("SELECT * FROM agent_os_orders").fetchone()))
+            self.assertEqual(collect_blocker_briefs(self.conn), 1, phase)
 
     def test_refresh_does_not_resend_a_card_that_is_already_current(self):
         """Every blocker alert reached TK twice.

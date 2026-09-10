@@ -250,6 +250,19 @@ def deliver(conn, config, api):
             conn.execute("UPDATE telegram_cards SET delivery='expired' WHERE id=?", (card["id"],))
             continue
         channel = card["channel"]
+        if channel == "monitor" and not base.MONITOR_CHANNEL_ENABLED:
+            # The monitor supergroup held TK and the bot and nothing else, so it
+            # was a second inbox for the same person carrying only the messages
+            # that explicitly need no action -- 161 of 270 cards. A push channel
+            # whose whole content is "this does not need you" costs attention and
+            # returns nothing. The lifecycle record lives in agent_os_events and
+            # the daily digest, neither of which depends on this.
+            #
+            # Suppressed rather than left pending, so nothing accumulates
+            # undelivered, and re-enabling is one constant when a second person
+            # is actually in the room to read it.
+            conn.execute("UPDATE telegram_cards SET delivery='suppressed' WHERE id=?", (card["id"],))
+            continue
         chat_id = config.get("monitor_chat_id") if channel == "monitor" else config["chat_id"]
         if not chat_id:
             continue
