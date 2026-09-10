@@ -9,7 +9,9 @@ execution_bindings:
     entrypoint: adapters/hermes/fleet_cli.py
     dispatcher: hermes_cli.kanban_db_dispatch.dispatch_once
     trigger: hermes-cron-no-agent
-    harnesses: [codex-cli, claude-code, gemini-cli]
+    harnesses: [codex-cli, claude-code, gemini-cli, codex-cli-network]
+    # Capabilities a harness may hold but never be routed for implicitly.
+    restricted_capabilities: [network]
     scope: local-file-work
     verification: review-required-after-cli-exit
     unavailable: [opencode]
@@ -103,6 +105,25 @@ harnesses:
     mode: remote
     capabilities: [filesystem, git]
     credential_classes: [provider-api]
+    authority_boundary: policy-controlled
+
+  # A harness declaring one of these is eligible only for work that asked for
+  # it by name. Ordinary capability routing matches any harness whose
+  # capabilities cover what the work needs, so without this a network-capable
+  # harness would quietly satisfy every filesystem task and could be rotated to
+  # on a capacity handoff -- granting egress to work that never requested it.
+  # Escalation should be something an order declares, not something it inherits.
+  codex-cli-network:
+    id: codex-cli-network
+    provider: openai
+    role: sub-harness
+    mode: remote
+    capabilities: [filesystem, git, shell, network]
+    credential_classes: [provider-api]
+    constraints:
+      - only-for-work-that-declares-the-network-capability
+      - sandbox-grants-general-egress-not-a-destination-allowlist
+      - browser-execution-requires-runtime-attestation
     authority_boundary: policy-controlled
 
   # Independent capacity. Codex and Claude are the only executors today, so a

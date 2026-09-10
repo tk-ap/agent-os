@@ -144,6 +144,7 @@ class MilchikBlockerBriefTests(unittest.TestCase):
         collect_blocker_briefs(self.conn)
         message = self.conn.execute("SELECT message FROM telegram_cards").fetchone()[0]
         self.assertIn("claude-code is missing shell", message)
+        self.assertNotIn("codex-cli-network. If", message)
         self.assertIn("split the work", message)
         self.assertIn("Do not widen permissions", message)
 

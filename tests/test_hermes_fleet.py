@@ -81,6 +81,19 @@ class ErrorTests(unittest.TestCase):
         self.assertNotIn("-y", argv)
         self.assertNotIn("--yolo", argv)
 
+    def test_the_network_harness_keeps_the_workspace_sandbox(self):
+        """Network is added to the sandbox; the sandbox is not removed."""
+        argv = harnesses.command("codex-cli-network", "/tmp/ws")
+        self.assertIn("--sandbox", argv)
+        self.assertEqual(argv[argv.index("--sandbox") + 1], "workspace-write")
+        self.assertIn("sandbox_workspace_write.network_access=true", argv)
+        self.assertNotIn("danger-full-access", argv)
+        self.assertIn('approval_policy="never"', argv)
+
+    def test_the_ordinary_codex_harness_still_has_no_network(self):
+        argv = harnesses.command("codex-cli", "/tmp/ws")
+        self.assertNotIn("sandbox_workspace_write.network_access=true", argv)
+
     def test_gemini_is_a_selectable_harness(self):
         self.assertIn("gemini-cli", harnesses.SUPPORTED)
 
@@ -177,6 +190,33 @@ class FleetTests(unittest.TestCase):
         conn.close()
         self.assertIsNotNone(task)
         return task
+
+    def test_network_work_routes_to_the_network_harness(self):
+        self.order["required_capabilities"] = ["filesystem", "git", "shell", "network"]
+        self.order["work_id"] = "needs-network"
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        try:
+            self.assertEqual(json.loads(bridge.order_row(conn, task_id)["harnesses"]),
+                             ["codex-cli-network"])
+        finally:
+            conn.close()
+
+    def test_ordinary_work_never_inherits_network(self):
+        """Capability routing matches any harness that covers the work, so a
+        network-capable harness would otherwise satisfy every shell task and
+        could be rotated to on a capacity handoff -- giving egress to work that
+        never asked for it. Escalation is declared, not inherited."""
+        self.order["required_capabilities"] = ["filesystem", "git", "shell"]
+        self.order["work_id"] = "no-network-please"
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        try:
+            chosen = json.loads(bridge.order_row(conn, task_id)["harnesses"])
+            self.assertNotIn("codex-cli-network", chosen)
+            self.assertEqual(chosen, ["codex-cli"])
+        finally:
+            conn.close()
 
     def test_idempotent_work_id_and_changed_content_rejected(self):
         first = self.enqueue()
@@ -376,9 +416,12 @@ class FleetTests(unittest.TestCase):
         # Every eligible harness is tried once before the task parks. Counted
         # from the registry rather than hardcoded, so adding a harness does not
         # silently turn this into a weaker assertion.
-        self.assertEqual(len(calls), len(harnesses.SUPPORTED))
-        self.assertEqual(len(set(calls)), len(harnesses.SUPPORTED),
+        eligible = json.loads(bridge.order_row(conn, task.id)["harnesses"])
+        self.assertEqual(len(calls), len(eligible))
+        self.assertEqual(len(set(calls)), len(eligible),
                          "a harness was retried instead of rotating to the next")
+        self.assertNotIn("codex-cli-network", eligible,
+                         "work that never asked for network was given a network harness")
         row = bridge.order_row(conn, task.id)
         self.assertEqual(row["phase"], "waiting_capacity")
         self.assertGreater(row["next_at"], time.time())

@@ -16,8 +16,14 @@ Use the fleet `status` command to inspect it; it is not the default dashboard bo
   known owning product, explicit operator authority reference, expiry.
 - Authority: enqueue is a trusted local operator action, not a public API. A proposed
   work item cannot authorize itself. The digest binds approval to the exact payload.
-- Scope: local file work only. Publishing, messaging, deployments, purchases,
-  credential changes, browser execution, and nested delegation remain out of scope.
+- Scope: local file work, plus live network observation when an order declares the
+  `network` capability. Publishing, messaging, deployments, purchases, credential
+  changes, browser execution, and nested delegation remain out of scope.
+- Network is restricted: a harness holding it is eligible only for work that asked
+  for it by name, so ordinary work cannot inherit egress through capability matching
+  or a capacity rotation. Being plain about the cost, the sandbox flag that enables it
+  grants general egress rather than an allowlist of the destinations a scoped grant
+  named; the narrowing that remains is which work is routed there at all.
 - Harnesses: Codex CLI uses workspace-write and never bypasses approvals/sandboxing.
   Claude Code runs file tools plus Bash scoped to git/gh via --allowedTools
   (Bash(git:*), Bash(gh:*)); anything else is auto-denied in --print + dontAsk

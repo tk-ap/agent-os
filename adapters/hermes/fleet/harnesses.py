@@ -5,7 +5,7 @@ import re
 import shutil
 
 
-SUPPORTED = ("codex-cli", "claude-code", "gemini-cli")
+SUPPORTED = ("codex-cli", "claude-code", "gemini-cli", "codex-cli-network")
 
 
 def command(harness, workspace):
@@ -24,6 +24,24 @@ def command(harness, workspace):
                 "--mcp-config", '{"mcpServers":{}}',
                 "--tools", "Read,Write,Edit,Glob,Grep,Bash",
                 "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(git:*),Bash(gh:*)"]
+    if harness == "codex-cli-network":
+        # Identical to codex-cli except that the workspace sandbox permits
+        # network egress. It exists as its own registry entry, rather than as a
+        # flag flipped on the ordinary harness when a grant arrives, so that
+        # gaining network is a routing decision visible at enqueue time and
+        # recorded in the evidence trail -- not a side effect of an approval.
+        #
+        # The trade this makes is real and worth stating: the sandbox grants
+        # general egress, while the scoped grant that motivates it names
+        # specific destinations. Restricting egress to those destinations is a
+        # provider capability the sandbox does not offer, so the narrowing that
+        # remains is that only work which declared the network capability is
+        # ever routed here at all.
+        return ["codex", "exec", "--json", "--sandbox", "workspace-write",
+                "-c", 'approval_policy="never"',
+                "-c", "sandbox_workspace_write.network_access=true",
+                "-c", 'forced_login_method="chatgpt"',
+                "-c", 'model_provider="openai"', "--cd", str(workspace), "-"]
     if harness == "gemini-cli":
         # approval_mode auto_edit auto-approves edit tools and nothing else, so
         # a shell call still needs a confirmation that headless mode cannot give.

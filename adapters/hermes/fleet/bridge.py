@@ -174,8 +174,21 @@ def validate(order):
         unknown = sorted(set(declared) - set(known))
         if unknown:
             raise ValueError(f"Unknown agent(s) in attribution: {', '.join(unknown)}")
-    if not set(order["required_capabilities"]) <= {"filesystem", "git", "shell"}:
-        raise ValueError("This adapter supports local file work only; browser/external actions need another adapter")
+    # network joins the declarable capabilities so that work needing live
+    # observation can be routed to a harness that actually has it, rather than
+    # being approved, run, and silently blocked by the sandbox. It is a real
+    # widening of this adapter's scope and is deliberately narrow: only
+    # capability routing may act on it, only a harness declaring it is eligible,
+    # and browser execution, publishing, deployment, purchases, credential
+    # changes and nested delegation all remain out of scope as before.
+    #
+    # Being honest about what this costs: the sandbox flag that enables network
+    # grants general egress, not an allowlist of the destinations a scoped grant
+    # named. The narrowing that remains is that only work which declared network
+    # is ever routed to that harness at all.
+    if not set(order["required_capabilities"]) <= {"filesystem", "git", "shell", "network"}:
+        raise ValueError("This adapter supports local file and declared network work only; "
+                         "browser execution and other external actions need another adapter")
     return workspace
 
 
@@ -231,10 +244,21 @@ def enqueue(state, order, authority, expires_in=86400, selected=harnesses.SUPPOR
     # be selected when its declared capabilities cover everything the work
     # needs. Claude's bash allowlist covers git/gh, so git work may use it;
     # shell remains Codex-only until the registry says otherwise.
-    registry = yaml.safe_load((ROOT / "registry/harnesses.yaml").read_text())["harnesses"]
+    catalogue = yaml.safe_load((ROOT / "registry/harnesses.yaml").read_text())
+    registry = catalogue["harnesses"]
+    binding = (catalogue.get("execution_bindings") or {}).get("hermes-fleet") or {}
+    # Capabilities a harness may hold but never be routed for implicitly.
+    # Ordinary routing matches any harness whose capabilities cover the work, so
+    # a network-capable harness would otherwise satisfy every filesystem task and
+    # could be rotated to on a capacity handoff, handing egress to work that
+    # never asked for it. Escalation is declared by an order, not inherited.
+    restricted = set(binding.get("restricted_capabilities") or ())
     needed = set(order["required_capabilities"])
     selected = tuple(h for h in selected
-                     if needed <= set(registry.get(h, {}).get("capabilities", [])))
+                     if needed <= set(registry.get(h, {}).get("capabilities", []))
+                     and not (restricted
+                              & set(registry.get(h, {}).get("capabilities", []))
+                              - needed))
     if not selected:
         raise ValueError(f"No selected harness covers required capabilities "
                          f"{sorted(needed)} (registry/harnesses.yaml)")
