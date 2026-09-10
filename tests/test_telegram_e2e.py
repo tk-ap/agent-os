@@ -109,6 +109,77 @@ class ApprovalGateTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def _parked_plainly(self, **request):
+        """A worker that answered the rewritten prompt, in plain sentences."""
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        folder = Path(self.state) / task_id
+        folder.mkdir(exist_ok=True)
+        payload = {"will": "Open four ailhat pages the way a logged-out visitor would.",
+                   "will_not": "No logging in, no forms, nothing changed.",
+                   "scope": "unauthenticated HTTPS GET to four documented endpoints",
+                   "reason": "It cannot tell whether the site is broken without looking."}
+        payload.update(request)
+        Path(folder / "1.json").write_text(json.dumps({"checkpoint_text": json.dumps({
+            "summary": "Parked.", "status": "waiting_approval", "approval_request": payload})}))
+        conn.execute("UPDATE agent_os_orders SET phase='waiting_approval',attempts=1 WHERE task_id=?",
+                     (task_id,))
+        kb.block_task(conn, task_id, reason="harness requested scoped authority")
+        conn.commit()
+        return conn, task_id
+
+    def test_the_card_leads_with_what_will_happen_not_with_the_scope_string(self):
+        """The scope is an engineering bound the agent wrote for itself. Asking
+        TK to approve that paragraph is asking him to press a button he cannot
+        read; he said as much. Lead with the plain sentences instead."""
+        conn, task_id = self._parked_plainly()
+        try:
+            telegram.schema(conn)
+            telegram.collect_approval_requests(conn, self.state)
+            message = conn.execute("SELECT message FROM telegram_cards WHERE task_id=?",
+                                   (task_id,)).fetchone()["message"]
+            first = message.splitlines()[0]
+            self.assertIn("agent-os-workforce", first, "the card never says what this is about")
+            self.assertIn("needs your OK", first)
+            self.assertNotIn("protected boundary", message)
+            self.assertNotIn(task_id, message, "a task id was put in front of the operator")
+            body = message.split("Exact scope")[0]
+            self.assertIn("logged-out visitor", body)
+            self.assertIn("nothing changed", body.lower())
+            # The enforced text is kept, and kept last.
+            self.assertIn("Exact scope", message)
+            self.assertLess(message.index("logged-out visitor"), message.index("Exact scope"))
+        finally:
+            conn.close()
+
+    def test_yes_and_no_both_say_what_happens(self):
+        conn, task_id = self._parked_plainly()
+        try:
+            telegram.schema(conn)
+            telegram.collect_approval_requests(conn, self.state)
+            message = conn.execute("SELECT message FROM telegram_cards WHERE task_id=?",
+                                   (task_id,)).fetchone()["message"]
+            self.assertIn("**Yes**", message)
+            self.assertIn("**No**", message)
+            self.assertIn("Nothing else is unlocked", message)
+            self.assertIn("is lost", message)
+        finally:
+            conn.close()
+
+    def test_a_worker_that_only_sent_a_scope_still_produces_a_usable_card(self):
+        """Checkpoints written before the prompt changed carry scope only."""
+        conn, task_id = self._parked_plainly(will="", will_not="")
+        try:
+            telegram.schema(conn)
+            telegram.collect_approval_requests(conn, self.state)
+            message = conn.execute("SELECT message FROM telegram_cards WHERE task_id=?",
+                                   (task_id,)).fetchone()["message"]
+            self.assertIn("What it needs", message)
+            self.assertIn("four documented endpoints", message)
+            self.assertIn("**Yes**", message)
+        finally:
+            conn.close()
+
     def test_a_lapsed_grant_asks_again_instead_of_stalling_silently(self):
         """The trap: a grant that lapses before any harness is free sends the
         task back to waiting_approval without touching attempts, and the files

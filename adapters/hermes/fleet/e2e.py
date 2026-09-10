@@ -354,11 +354,23 @@ def run_offline_e2e(root=None, user_id=900000001):
                             task and task.status == "done" and row and row["phase"] == "accepted")
                     finally:
                         conn.close()
-        # 7. Monitor channel got read-only fleet lines, never approval buttons.
-        monitor_messages = [k for _m, k in api.calls
-                            if k.get("chat_id") == monitor_id]
+        # 7. The monitor channel is silenced: nothing is delivered to it, and its
+        # cards are marked suppressed rather than left pending to accumulate.
+        # It held TK and the bot and nothing else, so every message there was a
+        # second copy of his own inbox carrying only work that needed no action.
+        monitor_messages = [k for _m, k in api.calls if k.get("chat_id") == monitor_id]
+        conn = bridge.connect(state)
+        try:
+            pending_monitor = conn.execute(
+                "SELECT COUNT(*) FROM telegram_cards WHERE channel='monitor' AND delivery='pending'"
+            ).fetchone()[0]
+            suppressed = conn.execute(
+                "SELECT COUNT(*) FROM telegram_cards WHERE channel='monitor' AND delivery='suppressed'"
+            ).fetchone()[0]
+        finally:
+            conn.close()
         results["monitor_channel"] = bool(
-            monitor_messages and not any("reply_markup" in k for k in monitor_messages))
+            not monitor_messages and not pending_monitor and suppressed)
     finally:
         os.environ.clear()
         os.environ.update(old_env)
