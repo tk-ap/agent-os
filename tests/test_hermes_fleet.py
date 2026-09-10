@@ -275,6 +275,82 @@ class FleetTests(unittest.TestCase):
         self.assertEqual(bridge.order_row(conn, task.id)["attempts"], 2)
         conn.close()
 
+    def _blocked_run(self, task, summary="Blocked by unavailable network transport."):
+        def runner(argv, prompt, workspace, out, err, timeout, alive):
+            checkpoint = workspace / (".agent-os-progress-" + task.id + ".json")
+            checkpoint.write_text(json.dumps({"summary": summary, "status": "blocked"}))
+            out.write_text('{"type":"result","result":"done"}\n')
+            err.write_text('')
+            return 0
+        return runner
+
+    def test_a_harness_that_says_it_was_blocked_is_believed(self):
+        """A clean exit is not completion. The worker wrote status blocked and
+        said why, and this fell through to the review lane anyway -- so work
+        that achieved nothing arrived as "CLI finished; acceptance requires
+        review" and only an independent inspection opening the evidence caught
+        it. A self-reported success is not evidence; a self-reported failure is
+        safe to act on."""
+        task = self.claimed()
+        with patch.object(harnesses, "available", return_value=True):
+            bridge.worker(self.state, task.id, task.current_run_id, self._blocked_run(task))
+        conn = bridge.connect(self.state)
+        try:
+            self.assertEqual(bridge.order_row(conn, task.id)["phase"], "blocked")
+            self.assertEqual(kb.get_task(conn, task.id).status, "blocked")
+            kinds = [e[0] for e in conn.execute(
+                "SELECT kind FROM agent_os_events WHERE task_id=?", (task.id,)).fetchall()]
+            self.assertIn("self_reported_blocked", kinds)
+            self.assertNotIn("review", [
+                r[0] for r in conn.execute(
+                    "SELECT phase FROM agent_os_orders WHERE task_id=?", (task.id,)).fetchall()])
+        finally:
+            conn.close()
+
+    def test_authority_the_run_could_not_use_is_not_consumed(self):
+        """The blocked run never exercised the grant. Burning it makes TK
+        approve the same thing again for nothing -- which is what happened when
+        an approved network observation was stopped by the harness sandbox
+        rather than by policy."""
+        task = self.claimed()
+        conn = bridge.connect(self.state)
+        conn.execute("INSERT INTO agent_os_grants VALUES (?,?,?,?,?,?,0)",
+                     (task.id, "test-1", "read four documented URLs", 42,
+                      time.time(), time.time() + 3600))
+        conn.commit()
+        conn.close()
+        with patch.object(harnesses, "available", return_value=True):
+            bridge.worker(self.state, task.id, task.current_run_id, self._blocked_run(task))
+        conn = bridge.connect(self.state)
+        try:
+            grant = conn.execute("SELECT consumed FROM agent_os_grants WHERE task_id=?",
+                                 (task.id,)).fetchone()
+            self.assertIsNotNone(grant, "the grant was deleted")
+            self.assertEqual(grant["consumed"], 0, "unusable authority was spent anyway")
+        finally:
+            conn.close()
+
+    def test_a_finished_run_still_reaches_review_and_consumes_its_grant(self):
+        task = self.claimed()
+        conn = bridge.connect(self.state)
+        conn.execute("INSERT INTO agent_os_grants VALUES (?,?,?,?,?,?,0)",
+                     (task.id, "test-1", "scope", 42, time.time(), time.time() + 3600))
+        conn.commit()
+        conn.close()
+        def runner(argv, prompt, workspace, out, err, timeout, alive):
+            checkpoint = workspace / (".agent-os-progress-" + task.id + ".json")
+            checkpoint.write_text(json.dumps({"summary": "Done.", "status": "ready_for_review"}))
+            out.write_text('{"type":"result","result":"done"}\n'); err.write_text(''); return 0
+        with patch.object(harnesses, "available", return_value=True):
+            bridge.worker(self.state, task.id, task.current_run_id, runner)
+        conn = bridge.connect(self.state)
+        try:
+            self.assertEqual(bridge.order_row(conn, task.id)["phase"], "review")
+            self.assertEqual(conn.execute(
+                "SELECT consumed FROM agent_os_grants WHERE task_id=?", (task.id,)).fetchone()[0], 1)
+        finally:
+            conn.close()
+
     def test_permission_failure_stops_without_switching(self):
         task = self.claimed()
         calls = []
