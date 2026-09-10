@@ -135,8 +135,14 @@ def _assert_no_secret(row: dict[str, Any]) -> None:
 
 
 def build_row(source: dict[str, Any], *, agents: dict[str, Any], routing_text: str,
-              issue_fetcher: Callable[[str, int], dict[str, Any]] = _gh_issue_state,
+              issue_fetcher: Callable[[str, int], dict[str, Any]] | None = None,
               now: str | None = None) -> dict[str, Any]:
+    # Resolved on call, not bound as a default. A default argument is evaluated
+    # once when the module is imported, so patching _gh_issue_state afterwards
+    # never reached this parameter and the "mocked" tests called the live
+    # GitHub API -- passing wherever gh happened to be authenticated and failing
+    # everywhere else.
+    issue_fetcher = issue_fetcher or _gh_issue_state
     repo = source["repo"]
     number = int(source["issue"])
     product = source["product"]
@@ -179,8 +185,9 @@ def build_row(source: dict[str, Any], *, agents: dict[str, Any], routing_text: s
 
 
 def build_snapshot(manifest: dict[str, Any] | None = None, *,
-                   issue_fetcher: Callable[[str, int], dict[str, Any]] = _gh_issue_state,
+                   issue_fetcher: Callable[[str, int], dict[str, Any]] | None = None,
                    now: str | None = None) -> dict[str, Any]:
+    issue_fetcher = issue_fetcher or _gh_issue_state
     manifest = manifest or load_manifest()
     agents = _load_agents()
     routing_text = ROUTING_FILE.read_text()

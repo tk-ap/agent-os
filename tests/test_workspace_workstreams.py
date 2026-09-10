@@ -202,6 +202,20 @@ class DryRunTests(unittest.TestCase):
         self.assertTrue(res["dry_run"])
         self.assertEqual(len(res["snapshot"]["rows"]), 2)
 
+    def test_building_a_snapshot_makes_no_network_call(self):
+        """The patch above only works because the fetcher is resolved on call.
+        While it was a default argument the mock never applied, so this suite
+        was reaching the live GitHub API and passed only where gh was logged
+        in. Fail loudly rather than quietly go to the network."""
+        def forbidden(*args, **kwargs):
+            raise AssertionError("build_snapshot reached the live GitHub API")
+        with patch.object(w, "_gh_issue_state", forbidden):
+            with self.assertRaises(AssertionError):
+                w.build_snapshot()
+        with patch.object(w, "_gh_issue_state", fake_issue):
+            snapshot = w.build_snapshot()
+        self.assertEqual(len(snapshot["rows"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
