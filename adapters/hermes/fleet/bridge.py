@@ -718,6 +718,30 @@ def worker(state, task_id, run_id, runner=run_cli):
                               "reason": short(request.get("reason")),
                               "attempt": attempt})
                         return
+                    if gate.get("status") == "blocked":
+                        # The worker says it could not do the work. Believe it.
+                        #
+                        # A self-reported success is not evidence, but a
+                        # self-reported failure is safe to act on: the failure
+                        # mode it prevents is real work being reported as done.
+                        # This path used to fall through to the review lane, so
+                        # a run that achieved nothing arrived as "CLI finished;
+                        # acceptance requires review", and only an independent
+                        # inspection opening the evidence caught it.
+                        #
+                        # The grant is deliberately not consumed. Authority the
+                        # run could not exercise has not been used, and burning
+                        # it forces TK to approve the same thing again for no
+                        # reason. On 2026-09-09 an approved network observation
+                        # was blocked by the harness sandbox rather than by
+                        # policy, and the grant was spent anyway.
+                        reason = short(gate.get("summary") or "The harness reported it was blocked.", 400)
+                        conn.execute("UPDATE agent_os_orders SET phase='blocked' WHERE task_id=?", (task_id,))
+                        stop(conn, task_id, "blocked", reason, run_id)
+                        emit(conn, task_id, "self_reported_blocked",
+                             {"reason": reason, "attempt": attempt, "harness": name,
+                              "grant_preserved": bool(grant)})
+                        return
                     if grant:
                         conn.execute("UPDATE agent_os_grants SET consumed=1 WHERE task_id=? AND consumed=0",
                                      (task_id,))
