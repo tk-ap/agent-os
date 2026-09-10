@@ -26,6 +26,34 @@ class ErrorTests(unittest.TestCase):
         event = '{"type":"error","message":"rate_limit_exceeded","retry_after":120}'
         self.assertEqual(harnesses.classify(1, event, ''), ("capacity", 120))
 
+    def test_the_queue_environment_does_not_leak_to_the_caller(self):
+        """connect() sets HERMES_KANBAN_* on whatever process calls it and never
+        unsets them. Harmless in a dedicated fleet process; not harmless inside
+        the Hermes gateway, whose own dispatcher then reads the fleet queue for
+        the rest of its life. On 2026-09-09 the gateway claimed an Agent OS
+        inspection under its own pid, spawned it twice, crashed both times and
+        gave up -- no fleet worker log, because the fleet's spawn never ran."""
+        from adapters.hermes.fleet import bridge as fleet_bridge
+        before = {"HERMES_KANBAN_DB": "/somewhere/else/kanban.db",
+                  "HERMES_KANBAN_WORKSPACES_ROOT": "/somewhere/else/workspaces"}
+        with patch.dict(os.environ, before):
+            with fleet_bridge.fleet_environment("/tmp/fleet-state-fixture") as scoped:
+                self.assertTrue(str(scoped).endswith("fleet-state-fixture"))
+                self.assertNotEqual(os.environ["HERMES_KANBAN_DB"], before["HERMES_KANBAN_DB"])
+            for key, value in before.items():
+                self.assertEqual(os.environ[key], value,
+                                 f"{key} leaked out of the fleet scope")
+
+    def test_an_absent_queue_environment_is_left_absent(self):
+        from adapters.hermes.fleet import bridge as fleet_bridge
+        cleared = {k: v for k, v in os.environ.items() if not k.startswith("HERMES_KANBAN_")}
+        with patch.dict(os.environ, cleared, clear=True):
+            with fleet_bridge.fleet_environment("/tmp/fleet-state-fixture"):
+                self.assertIn("HERMES_KANBAN_DB", os.environ)
+            self.assertNotIn("HERMES_KANBAN_DB", os.environ,
+                             "the fleet invented a queue variable for its caller")
+            self.assertNotIn("HERMES_KANBAN_WORKSPACES_ROOT", os.environ)
+
     def test_gemini_untrusted_folder_fails_closed(self):
         """Gemini downgrades auto_edit to prompt-for-approval in an untrusted
         folder and still exits 0, so a headless run changes nothing while

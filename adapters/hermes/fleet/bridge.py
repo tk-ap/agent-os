@@ -37,6 +37,42 @@ def lock(path):
         yield
 
 
+_QUEUE_ENV = ("HERMES_KANBAN_DB", "HERMES_KANBAN_WORKSPACES_ROOT")
+
+
+@contextlib.contextmanager
+def fleet_environment(state):
+    """Point Hermes' queue helpers at the fleet queue, then put the caller's
+    environment back.
+
+    connect() sets these variables on whatever process calls it, and never
+    unsets them. That is harmless in a dedicated fleet process and not harmless
+    at all inside the Hermes gateway: once set there, the gateway's own
+    dispatcher is looking at the fleet queue for the rest of its life. It then
+    claims Agent OS orders under its own pid and spawns them its own way, with
+    none of the authority checks, capability routing, checkpointing or evidence
+    the fleet worker provides.
+
+    That is not hypothetical. On 2026-09-09 the gateway (pid 916) claimed the
+    W Dog inspection of an approved ailhat task, spawned it twice, crashed both
+    times, and the board gave up -- with no fleet worker log written, because
+    the fleet's own spawn was never involved. The fleet README states the queue
+    is isolated so exactly this cannot happen; this is what makes that true.
+    """
+    previous = {key: os.environ.get(key) for key in _QUEUE_ENV}
+    state = Path(state).resolve()
+    os.environ["HERMES_KANBAN_DB"] = str(state / "kanban.db")
+    os.environ["HERMES_KANBAN_WORKSPACES_ROOT"] = str(state / "workspaces")
+    try:
+        yield state
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def connect(state):
     state = Path(state).resolve()
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -294,6 +330,14 @@ def stop(conn, task_id, phase, reason, run_id=None):
 
 
 def tick(state, dry_run=False):
+    """Run one fleet dispatch pass, leaving the caller's queue environment as
+    it was found. The restore matters when this runs inside a process that has
+    a queue of its own; see fleet_environment."""
+    with fleet_environment(state) as scoped:
+        return _tick(scoped, dry_run=dry_run)
+
+
+def _tick(state, dry_run=False):
     from hermes_cli import kanban_db as kb
     from hermes_cli.kanban_db_dispatch import dispatch_once
     state = Path(state).resolve()
