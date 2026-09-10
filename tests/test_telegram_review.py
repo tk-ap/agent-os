@@ -220,6 +220,126 @@ class TelegramReviewTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_superseded_parent_leaves_the_review_lane(self):
+        """A revised parent is finished, not pending.
+
+        It used to be reset to verdict NULL with no inspector, which the verdict
+        reader skips (it requires an inspector) and the assigner skipped too (a
+        row existed) -- so it sat in phase 'review' forever, showing up as work
+        awaiting TK's decision that nothing would ever pick up again.
+        """
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        try:
+            telegram.schema(conn)
+            conn.execute("UPDATE agent_os_orders SET phase='review' WHERE task_id=?", (task_id,))
+            conn.execute("""INSERT OR REPLACE INTO agent_os_inspections
+                (task_id,inspector_task_id,verdict,failed,cycles) VALUES (?,?,?,?,1)""",
+                (task_id, "t_inspector_fixture", "fail", "Criterion 1 fails."))
+            telegram.run_revisions(conn, self.state, now=time.time())
+            row = conn.execute("SELECT verdict FROM agent_os_inspections WHERE task_id=?",
+                               (task_id,)).fetchone()
+            self.assertEqual(row["verdict"], "superseded")
+            self.assertEqual(bridge.order_row(conn, task_id)["phase"], "superseded")
+            # And it must not be handed to a fresh inspector: the revision owns it now.
+            telegram.request_inspection(conn, self.state)
+            self.assertEqual(conn.execute(
+                "SELECT verdict FROM agent_os_inspections WHERE task_id=?",
+                (task_id,)).fetchone()["verdict"], "superseded")
+        finally:
+            conn.close()
+
+    def test_stranded_review_order_is_handed_to_a_fresh_inspector(self):
+        """A row with no verdict and no live inspector must not be abandoned."""
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        try:
+            telegram.schema(conn)
+            conn.execute("UPDATE agent_os_orders SET phase='review' WHERE task_id=?", (task_id,))
+            conn.execute("""INSERT OR REPLACE INTO agent_os_inspections
+                (task_id,inspector_task_id,verdict,failed,cycles) VALUES (?,NULL,NULL,NULL,1)""",
+                (task_id,))
+            telegram.request_inspection(conn, self.state)
+            assigned = conn.execute("SELECT inspector_task_id FROM agent_os_inspections WHERE task_id=?",
+                                    (task_id,)).fetchone()["inspector_task_id"]
+            self.assertIsNotNone(assigned, "stranded review order was left with nobody coming for it")
+        finally:
+            conn.close()
+
+    def test_resolved_inspection_is_never_reassigned(self):
+        """Re-inspecting settled work would restart the revision loop."""
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        try:
+            telegram.schema(conn)
+            conn.execute("UPDATE agent_os_orders SET phase='review' WHERE task_id=?", (task_id,))
+            for verdict in ("pass", "fail", "escalated", "superseded"):
+                conn.execute("""INSERT OR REPLACE INTO agent_os_inspections
+                    (task_id,inspector_task_id,verdict,failed,cycles) VALUES (?,NULL,?,NULL,1)""",
+                    (task_id, verdict))
+                telegram.request_inspection(conn, self.state)
+                self.assertIsNone(conn.execute(
+                    "SELECT inspector_task_id FROM agent_os_inspections WHERE task_id=?",
+                    (task_id,)).fetchone()["inspector_task_id"], f"{verdict} was re-inspected")
+        finally:
+            conn.close()
+
+    def _unreadable_inspector(self, conn, parent_id):
+        """An inspector that finished but did not open with a machine-readable verdict."""
+        self.order = dict(self.order, work_id="checkme" + telegram.INSPECTION_SUFFIX)
+        inspector_id = self.enqueue()
+        conn.execute("UPDATE agent_os_orders SET phase='review',attempts=1 WHERE task_id=?",
+                     (inspector_id,))
+        folder = Path(self.state) / inspector_id
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "1.json").write_text(json.dumps(
+            {"checkpoint_text": json.dumps({"summary": "I looked at everything and it seems fine."})}))
+        conn.execute("""INSERT OR REPLACE INTO agent_os_inspections
+            (task_id,inspector_task_id,verdict,failed,cycles) VALUES (?,?,NULL,NULL,1)""",
+            (parent_id, inspector_id))
+        return inspector_id
+
+    def test_unreadable_verdict_is_re_inspected_before_it_reaches_tk(self):
+        """A malformed verdict line is the inspector's failure, not the producer's.
+
+        Escalating it would stall unattended work over a formatting problem.
+        """
+        parent_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        try:
+            telegram.schema(conn)
+            conn.execute("UPDATE agent_os_orders SET phase='review' WHERE task_id=?", (parent_id,))
+            self._unreadable_inspector(conn, parent_id)
+            telegram.read_inspection_verdicts(conn, self.state)
+            row = conn.execute("SELECT * FROM agent_os_inspections WHERE task_id=?",
+                               (parent_id,)).fetchone()
+            self.assertIsNone(row["verdict"], "an unreadable verdict went straight to TK")
+            self.assertEqual(row["verdict_retries"], 1)
+            # Stranded rows are re-assigned, so the retry actually gets an inspector.
+            telegram.request_inspection(conn, self.state)
+            self.assertIsNotNone(conn.execute(
+                "SELECT inspector_task_id FROM agent_os_inspections WHERE task_id=?",
+                (parent_id,)).fetchone()["inspector_task_id"])
+        finally:
+            conn.close()
+
+    def test_second_unreadable_verdict_stops_retrying(self):
+        """One retry, then it is a real signal and belongs with TK."""
+        parent_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        try:
+            telegram.schema(conn)
+            conn.execute("UPDATE agent_os_orders SET phase='review' WHERE task_id=?", (parent_id,))
+            self._unreadable_inspector(conn, parent_id)
+            conn.execute("UPDATE agent_os_inspections SET verdict_retries=? WHERE task_id=?",
+                         (telegram.MAX_VERDICT_RETRIES, parent_id))
+            telegram.read_inspection_verdicts(conn, self.state)
+            self.assertEqual(conn.execute(
+                "SELECT verdict FROM agent_os_inspections WHERE task_id=?",
+                (parent_id,)).fetchone()["verdict"], "unreadable")
+        finally:
+            conn.close()
+
     def test_inspection_is_not_itself_inspected(self):
         """An inspection reaching review must not spawn another inspection."""
         task = self.claimed()
