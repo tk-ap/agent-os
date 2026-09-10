@@ -19,6 +19,15 @@ A Hermes, Codex, Claude, or future harness outage, quota limit, crash, or replac
 
 These are policy defaults, not permanent product bindings. Harnesses remain replaceable through the registry/policy layer.
 
+`runtime/harness_router.py` reads those two files rather than restating them:
+the harness catalogue and its intelligence tiers come from
+`registry/harnesses-v1.yaml`, and which harness each task class prefers comes
+from `policies/harness-routing.yaml`. Adding a harness is therefore a registry
+edit, not a code change. This matters because the fleet gained a third executor
+(Gemini CLI) while this router still named three candidates in code, and a
+router that hardcodes what a registry claims to describe disagrees with it
+silently.
+
 ## Independence
 
 Existing agent-level verifier independence remains mandatory. Harness-level independence is additive: a harness that materially authored or remediated work is ineligible to independently verify that same work when an alternative eligible harness exists. If no eligible independent verifier is available, verification remains blocked rather than being self-attested.
