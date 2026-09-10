@@ -526,24 +526,21 @@ class FleetTests(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_consecutive_capacity_waits_are_not_the_identical_block(self):
-        """The loop detector compares reasons. Naming the resume time is better
-        for the operator and stops two correct waits looking like one defect."""
+    def test_recurrence_counting_ignores_the_block_reason(self):
+        """Recorded so the earlier mistake is not repeated: Hermes counts blocks
+        per task, not per reason. One task on 2026-09-09 went recurrence 1 for
+        an approval park, 2 for a capacity park, 3 for the next approval park.
+        Varying the reason cannot avoid the escalation, so every fleet path that
+        resumes its own park must clear triage itself."""
         task = self.claimed()
-        def runner(argv, prompt, workspace, out, err, timeout, alive):
-            out.write_text('{"type":"error","message":"rate limit"}'); err.write_text(''); return 1
-        with patch.object(harnesses, "available", return_value=True):
-            bridge.worker(self.state, task.id, task.current_run_id, runner)
         conn = bridge.connect(self.state)
         try:
-            reasons = [r[0] for r in conn.execute(
-                """SELECT payload FROM task_events WHERE task_id=? AND kind='blocked'""",
-                (task.id,)).fetchall()]
-            blocked = [r for r in conn.execute(
-                "SELECT payload FROM task_events WHERE task_id=?", (task.id,)).fetchall()]
-            text = " ".join(str(r[0]) for r in blocked)
-            self.assertIn("resume at", text)
-            self.assertNotIn("resume after cooldown", text)
+            conn.execute("UPDATE tasks SET status='triage' WHERE id=?", (task.id,))
+            conn.commit()
+            self.assertTrue(bridge.resume_board(conn, task.id))
+            self.assertEqual(kb.get_task(conn, task.id).status, "ready")
+            # Idempotent: a task that is not escalated is left alone.
+            self.assertFalse(bridge.resume_board(conn, task.id))
         finally:
             conn.close()
 
