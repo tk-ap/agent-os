@@ -437,6 +437,66 @@ class TelegramReviewTests(unittest.TestCase):
         self.assertIn("branch changed", str(caught.exception))
         self.assertIn("nothing published", str(caught.exception))
 
+    def test_revoked_work_is_never_carded(self):
+        """Revoked is terminal: the mandate expired or was withdrawn, so there is
+        nothing for TK to decide. Including it in the card query produced
+        "Decision required" cards for dead work -- 66 of them for six tasks in a
+        single session, because the key also carries a workspace fingerprint."""
+        task = self.claimed()
+        conn = bridge.connect(self.state)
+        try:
+            telegram.schema(conn)
+            conn.execute("UPDATE agent_os_orders SET phase='revoked',attempts=1 WHERE task_id=?",
+                         (task.id,))
+            kb.request_review(conn, task.id, summary="Fixture", reviewer="agent-os-review",
+                              expected_run_id=task.current_run_id)
+            conn.execute("""INSERT OR REPLACE INTO agent_os_inspections
+                (task_id,inspector_task_id,verdict,failed,cycles) VALUES (?,?,?,?,1)""",
+                (task.id, "t_inspector_fixture", "pass", "passed"))
+            telegram.collect_reviews(conn, self.state)
+            self.assertEqual(conn.execute(
+                "SELECT COUNT(*) FROM telegram_cards WHERE task_id=?", (task.id,)).fetchone()[0], 0,
+                "revoked work was announced as a decision")
+        finally:
+            conn.close()
+
+    def test_card_refreshes_are_bounded(self):
+        """The fingerprint spans the whole workspace -- git HEAD, the diff, every
+        untracked file -- so when the workspace is this repository an unrelated
+        commit re-keys the card and mints another. Refreshing is wanted; doing it
+        without limit is the storm."""
+        conn, task, config, query = self.card()
+        try:
+            existing = conn.execute("SELECT COUNT(*) FROM telegram_cards").fetchone()[0]
+            self.assertEqual(existing, 1)
+            for extra in range(base_refreshes := telegram.MAX_CARD_REFRESHES - 1):
+                conn.execute(
+                    """INSERT INTO telegram_cards(id,event_key,task_id,snapshot,expires,message)
+                       VALUES (?,?,?,?,?,'older card')""",
+                    (f"pad{extra}", f"task:{task.id}:review:1:stamp{extra}", task.id,
+                     f"stamp{extra}", time.time() + 600))
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM telegram_cards").fetchone()[0],
+                             telegram.MAX_CARD_REFRESHES)
+            # The workspace moves again, which would previously mint another card.
+            (self.workspace / "moved.txt").write_text("changed after the card")
+            telegram.collect_reviews(conn, self.state)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM telegram_cards").fetchone()[0],
+                             telegram.MAX_CARD_REFRESHES,
+                             "a changed workspace kept minting cards past the cap")
+        finally:
+            conn.close()
+
+    def test_a_changed_workspace_still_refreshes_below_the_cap(self):
+        """The cap must not disable the refresh it bounds."""
+        conn, task, config, query = self.card()
+        try:
+            (self.workspace / "moved.txt").write_text("changed after the card")
+            telegram.collect_reviews(conn, self.state)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM telegram_cards").fetchone()[0], 2,
+                             "a changed workspace did not produce a refreshed card")
+        finally:
+            conn.close()
+
     def test_review_deduplication(self):
         conn,task,config,query = self.card()
         try:

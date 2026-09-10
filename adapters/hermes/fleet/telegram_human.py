@@ -82,7 +82,11 @@ def collect_reviews(conn, state):
     """Create concise, human-first review cards while retaining all evidence."""
     from hermes_cli import kanban_db as kb
 
-    for row in conn.execute("SELECT * FROM agent_os_orders WHERE phase IN ('review','blocked','revoked')").fetchall():
+        # A card asks TK to decide something. Revoked work is terminal -- the
+        # mandate expired or was withdrawn -- so there is nothing to decide, and
+        # including it here produced "Decision required" cards for dead work.
+        # What stopped is reported by the digest instead.
+    for row in conn.execute("SELECT * FROM agent_os_orders WHERE phase IN ('review','blocked')").fetchall():
         task = kb.get_task(conn, row["task_id"])
         if not task or task.status not in {"review", "blocked"}:
             continue
@@ -106,6 +110,20 @@ def collect_reviews(conn, state):
             except Exception:
                 pass
 
+        # The fingerprint covers the whole workspace: git HEAD, the full diff and
+        # every untracked file. When the workspace is this repository, an
+        # unrelated commit changes it, which minted a brand new card for the same
+        # task on every repo change -- 66 of them for six tasks in one session.
+        # The refresh itself is wanted (a verdict belongs to the files it was
+        # formed against, and decide() refuses a stale snapshot), so this bounds
+        # it rather than removing it: after MAX_CARD_REFRESHES the standing card
+        # is left alone. It cannot be accepted while stale, and the digest still
+        # lists the task under "Needs you".
+        if conn.execute(
+                "SELECT COUNT(*) FROM telegram_cards WHERE event_key LIKE ?",
+                (f"task:{task.id}:{row['phase']}:{row['attempts']}:%",)
+        ).fetchone()[0] >= base.MAX_CARD_REFRESHES:
+            continue
         key = f"task:{task.id}:{row['phase']}:{row['attempts']}:{stamp}"
         record_path = Path(state) / task.id / f"{row['attempts']}.json"
         record = json.loads(record_path.read_text()) if record_path.exists() else {}
