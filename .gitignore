@@ -1,5 +1,16 @@
 
 # Local Agent OS runtime state
 .agent-os/tasks.db
+.agent-os/fleet/
+# Fleet workers write per-task state into the workspace they are running in,
+# which for this repository is this repository. These are keyed by task id and
+# are recreated on every run, so they are runtime state rather than work:
+#   .agent-os-progress-t_<id>.json  per-step checkpoint the next harness reads
+#   .agent-os-local-t_<id>/         the worker's own scratch directory
+# Task deliverables are deliberately NOT matched here. A worker's actual output
+# should be reviewable, and hiding it behind an ignore rule is how real work
+# gets lost.
+.agent-os-progress-t_*.json
+.agent-os-local-t_*/
 __pycache__/
 *.py[cod]
