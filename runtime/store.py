@@ -1,3 +1,12 @@
+from __future__ import annotations  # TaskStore.list shadows the builtin; see below.
+
+# Without lazy annotations this module cannot be imported on Python 3.12 at all.
+# TaskStore defines a method named `list`, which binds that name in the class
+# body, so the very next method's `-> list[dict[str, Any]]` evaluates
+# TaskStore.list[...] and raises "'function' object is not subscriptable".
+# Python 3.14 hides the bug: PEP 649 made annotations lazy by default, so a
+# local run on 3.14 passes while CI on 3.12 cannot even import runtime.server.
+
 import json
 import sqlite3
 import uuid
