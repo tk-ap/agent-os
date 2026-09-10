@@ -29,9 +29,20 @@ GATEWAY_STALE_AFTER = 150.0
 
 
 def gateway_alive(home=None):
-    """True while the Hermes gateway's own heartbeat is fresh."""
-    from hermes_constants import get_hermes_home
-    db = Path(home or get_hermes_home()) / "state.db"
+    """True while the Hermes gateway's own heartbeat is fresh.
+
+    hermes_constants is imported only to locate the default home, so importing
+    it when the caller already supplied one made this unusable -- and
+    untestable -- anywhere Hermes is not installed. With no home and no Hermes
+    there is no gateway to be alive, which is a False, not an ImportError.
+    """
+    if home is None:
+        try:
+            from hermes_constants import get_hermes_home
+        except ImportError:
+            return False
+        home = get_hermes_home()
+    db = Path(home) / "state.db"
     if not db.exists():
         return False
     try:
