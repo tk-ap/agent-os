@@ -78,6 +78,39 @@ def available(harness):
     return shutil.which(command(harness, ".")[0]) is not None
 
 
+def retry_at_from_message(text, now=None):
+    """Seconds until a wall-clock reset time named in a provider's own message.
+
+    Codex reports the reset in prose rather than a structured field:
+
+        You've hit your usage limit ... or try again at 9:58 PM.
+
+    classify() only read a numeric retry_after, so this was missed and the
+    cooldown fell back to the one-hour default. That is not a small difference:
+    an eleven-minute wait became an hour, on work the operator had already
+    approved and that had no other eligible harness to rotate to.
+
+    Returns None when no time is stated. A stated time that has already passed
+    today is read as tomorrow, and the result is clamped like any other delay.
+    """
+    import datetime
+    match = re.search(r"try again at\s+(\d{1,2}):(\d{2})\s*([ap]\.?m\.?)?", text, re.I)
+    if not match:
+        return None
+    hour, minute, meridiem = int(match.group(1)), int(match.group(2)), (match.group(3) or "").lower()
+    if meridiem.startswith("p") and hour != 12:
+        hour += 12
+    elif meridiem.startswith("a") and hour == 12:
+        hour = 0
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    now = now or datetime.datetime.now()
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= now:
+        target += datetime.timedelta(days=1)
+    return min(86400, max(60, (target - now).total_seconds()))
+
+
 def classify(returncode, stdout, stderr):
     """Only provider error records/stderr can trigger rotation, never generated prose.
 
@@ -130,7 +163,9 @@ def classify(returncode, stdout, stderr):
             r"authentication|unauthorized|invalid.api.key|login required|not logged in", error):
         return "authentication", None
     if re.search(r"rate_limit|rate limit|usage.limit|quota.exceeded|quota exhausted|too many requests|insufficient_quota", error):
-        return "capacity", retry_after
+        # Prefer a structured retry_after; fall back to a reset time the
+        # provider stated in prose before defaulting to an hour.
+        return "capacity", retry_after or retry_at_from_message(refusal)
     if returncode or errors:
         return "failed", None
     return "executed", None
