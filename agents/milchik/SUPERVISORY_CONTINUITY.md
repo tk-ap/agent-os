@@ -11,13 +11,40 @@ A real approved ailhat work item was parked after Eugene hit a temporary harness
 
 This is a supervisory failure. A future-time promise in a Telegram message is not a durable retry mechanism.
 
+### Mechanism, established 2026-09-09
+
+The wake mechanism was not in fact missing, and this matters for what has to be
+built. The task was `t_5245bf80` (`directive-13-work`, backlog item
+`ailhat-live-scan-customer-readiness-proof`). Its `next_at` was persisted as
+2026-09-07 21:33, and `tick()` already re-checks `waiting_capacity` orders whose
+`next_at` has elapsed.
+
+It never got there. Default authority was 86400s and a provider cooldown is
+clamped to at most 86400s, so the mandate could expire inside its own cooldown.
+`authorized()` returned False first, and the sweep at the top of `tick()`
+revoked the task before the unpark branch below it could run. Every order in the
+fleet ended terminal the same way, with `revoked=0` on almost all of them: the
+operator revoked nothing, the clock did.
+
+The correction landed as capacity credit: time parked because no eligible
+harness was available is credited back against the mandate, bounded by one
+authority window. Requirements 1-4 below would not have prevented this incident
+without it. A wake loop built on an unprotected mandate wakes a task that has
+already been destroyed.
+
 Milchik must behave as an operational supervisor that preserves continuity of approved work, not merely as a notification formatter.
 
 ## Governing invariant
 
-> Milchik may promise a future action only if a durable mechanism exists that will cause that action to be reconsidered.
+> Milchik may promise a future action only if a durable mechanism exists that will cause that action to be reconsidered, **and the work will still be authorized when that moment arrives.**
 
 Silence is never a valid state for owned work after a promised next-action time has elapsed.
+
+The second clause is not redundant. A promise to reconsider at time T is void if
+authority lapses before T, and a mandate that keeps burning while work is parked
+on an unavailable provider will lapse exactly when the wait is longest. Any
+future-action promise must therefore either preserve the authority it depends
+on, or say plainly that the work will expire before the promised moment.
 
 ## Target loop
 
@@ -63,6 +90,20 @@ When the wake condition is reached, Milchik must read current recorded state and
 - `FAILED`
 
 No silent no-op is allowed.
+
+`REASSIGNED` is constrained by the failure class that produced the park. Only a
+provider refusing for usage, rate or quota reasons justifies moving the work to
+another harness, because it is the only class where a different provider behaves
+differently. Permission and authentication failures repeat identically on every
+harness in turn and consume the attempt budget for nothing; unexplained failures
+are not evidence that another harness would succeed. Those resolve to
+`NEEDS_TK` or `FAILED`, never `REASSIGNED`.
+
+Re-evaluation must also read evidence rather than a harness's own account of
+itself. A harness can refuse and still exit zero -- an unauthenticated run, or
+one in a workspace it does not trust, reports success while changing nothing --
+so a recorded success is not proof that work happened. A supervisor that trusts
+self-reported state will close work that never ran.
 
 A retry does not create new authority. The same approved task may resume only while the requested action and authority scope remain materially unchanged. Scope changes return through the normal approval path.
 
@@ -169,11 +210,21 @@ The change is not complete until all of the following are demonstrated with reco
 9. A Telegram `status` / `what's happening?` query returns current recorded state and the next action.
 10. Default Telegram output is human-readable and hides unnecessary raw enums/seconds-level timestamps.
 11. No heartbeat/status mechanism spams the channel when nothing materially changed.
-12. Tests cover the missed-retry failure observed on 2026-09-08.
+12. Tests cover the missed-retry failure observed on 2026-09-08. *(Satisfied
+    2026-09-09: `test_cooldown_longer_than_the_mandate_does_not_revoke_the_task`
+    drives a real capacity park, ages the mandate past its expiry inside the
+    cooldown, and asserts the task survives the next tick.)*
+13. A parked task whose mandate would have lapsed during the wait is still
+    authorized when its wake condition is reached.
 
 ## Implementation order
 
-1. Durable parked-task wake state.
+0. Mandate preservation while parked. *(Landed 2026-09-09.)* Everything below
+   depends on the work still being authorized when it is woken.
+1. Durable parked-task wake state. Substantially present already: orders persist
+   `next_at`, and the tick unparks `waiting_capacity` when it elapses. What is
+   missing is the blocker class, the last supervisory action, and the
+   next-action owner listed under requirement 1.
 2. Wake-loop dispatcher/re-evaluation.
 3. Stale-work watchdog + heartbeat recovery.
 4. Two-way Telegram status-query handler.
