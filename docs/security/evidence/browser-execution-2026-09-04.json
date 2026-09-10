@@ -1,0 +1,101 @@
+{
+  "api_version": "agent-os/v0alpha1",
+  "kind": "Evidence",
+  "metadata": {
+    "id": "browser-execution-security-2026-09-04"
+  },
+  "spec": {
+    "task": "Convert the Chromium SIGTRAP incident into a fail-closed browser execution acceptance gate",
+    "product": "agent-os-workforce",
+    "host": "omarchy-local-workstation",
+    "harness": "codex",
+    "state": "implemented",
+    "changes": [
+      "Added a browser execution policy evaluator",
+      "Separated READY preflight from VERIFIED post-run attestation",
+      "Added a fail-closed runtime attestation contract",
+      "Added a Codex adapter that requires an authenticated attestation transport",
+      "Added a provider capability-manifest handshake and enablement requirements",
+      "Added incident-derived acceptance tests",
+      "Documented verified host controls and unresolved provider attestations",
+      "Removed broad local browser command approvals and prohibited Chromium sandbox bypasses"
+    ],
+    "verification": [
+      {
+        "check": "Browser execution acceptance suite",
+        "result": "passed",
+        "evidence_ref": "python -m unittest tests.test_browser_security (22 tests passed)"
+      },
+      {
+        "check": "Browser policy, Codex adapter, and adjacent offline product-routing tests",
+        "result": "passed",
+        "evidence_ref": "python -m unittest tests.test_browser_security tests.test_codex_browser_adapter tests.test_product (32 tests passed)"
+      },
+      {
+        "check": "Python syntax compilation",
+        "result": "passed",
+        "evidence_ref": "python -m py_compile runtime/browser_security.py tests/test_browser_security.py"
+      },
+      {
+        "check": "Full repository test suite",
+        "result": "passed",
+        "evidence_ref": "python -m unittest discover -s tests -v (40 tests passed after adding first-class browser evidence integration)"
+      },
+      {
+        "check": "Connected browser provider runtime attestation",
+        "result": "unknown",
+        "evidence_ref": "Brave extension/native-host diagnostics passed and the connected provider exposed the Brave Personal profile and tabs, but no native-sandbox, profile-lifetime, credential-isolation, or effective-egress attestation fields"
+      },
+      {
+        "check": "Brave connected-browser transport",
+        "result": "passed",
+        "evidence_ref": "CUA state: browser family brave, type extension, extension instance present; no page content or credentials recorded"
+      }
+    ],
+    "artifacts": [
+      {
+        "type": "report",
+        "ref": "docs/security/BROWSER_EXECUTION_ACCEPTANCE.md"
+      },
+      {
+        "type": "other",
+        "ref": "runtime/browser_security.py"
+      },
+      {
+        "type": "other",
+        "ref": "adapters/codex/browser.py"
+      },
+      {
+        "type": "other",
+        "ref": "contracts/browser-runtime-attestation.schema.json"
+      },
+      {
+        "type": "report",
+        "ref": "docs/security/CODEX_BROWSER_PROVIDER_REQUIREMENTS.md"
+      },
+      {
+        "type": "other",
+        "ref": "runtime/browser_evidence.py"
+      },
+      {
+        "type": "other",
+        "ref": "tests/test_browser_security.py"
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Repository implementation authorization",
+        "state": "approved"
+      },
+      {
+        "gate": "Production enforcement claim",
+        "state": "denied"
+      }
+    ],
+    "notes": [
+      "The policy decision layer and runtime evidence verifier are implemented and tested; the provider adapter cannot emit facts that the current browser API does not expose.",
+      "LEDGATo/khrystal enforcement must not be described as production-proven until runtime attestations are collected and verified.",
+      "The repository-inspection unit test now uses a deterministic GitHub fixture; live connectivity remains an integration concern rather than a unit-test dependency."
+    ]
+  }
+}

@@ -98,6 +98,27 @@ security:
   browser_security_module: runtime/browser_security.py
   harness_attestation_required_for: [browser]
 
+browser_e2e:
+  priority: true
+  role: primary-browser-verification-harness
+  current_state: available-surface-attestation-blocked
+  coverage:
+    - route-and-navigation-smoke
+    - critical-user-paths
+    - interaction-and-state-transitions
+    - responsive-desktop-mobile-layouts
+    - keyboard-and-accessibility-basics
+    - visual-screenshot-review
+    - console-and-network-errors
+    - failure-denial-and-recovery-paths
+    - evidence-capture-and-task-attachment
+  required_before_trusted_results:
+    - host-verified-attestation-transport
+    - ephemeral-profile-cleanup
+    - credential-isolation
+    - destination-locked-egress
+    - browser-evidence-attached-to-task
+
 escalation:
   policy: policies/AUTONOMY_POLICY.md
   do_not_escalate_for_uncertainty_alone: true

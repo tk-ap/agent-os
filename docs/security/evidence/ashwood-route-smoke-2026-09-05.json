@@ -1,0 +1,47 @@
+{
+  "api_version": "agent-os/v0alpha1",
+  "kind": "Evidence",
+  "metadata": {
+    "id": "ashwood-route-smoke-2026-09-05"
+  },
+  "spec": {
+    "task": "Verify live ASHWOOD core routes through the connected Brave browser",
+    "product": "ashwood",
+    "host": "omarchy-local-workstation",
+    "harness": "codex-connected-browser",
+    "state": "previewed",
+    "verification": [
+      {
+        "check": "Home route",
+        "result": "passed",
+        "evidence_ref": "https://ashwood-info.vercel.app/"
+      },
+      {
+        "check": "Core route matrix",
+        "result": "passed",
+        "evidence_ref": "music/, journal/, dispatch/001-the-mind-is-the-moat/, about/, connect/"
+      },
+      {
+        "check": "Runtime errors and framework overlays",
+        "result": "passed",
+        "evidence_ref": "Connected Brave provider reported no console errors or framework error overlays on the five routes"
+      },
+      {
+        "check": "Interactive behavior",
+        "result": "passed",
+        "evidence_ref": "Home reveal interaction changed rendered content; no forms or external-side-effect controls were submitted"
+      }
+    ],
+    "gates": [
+      {
+        "gate": "Privileged browser runtime attestation",
+        "state": "denied"
+      }
+    ],
+    "notes": [
+      "Read-only verification only.",
+      "The connected Brave transport is working, but provider attestations for native sandbox, profile cleanup, credential isolation, and enforced egress remain unavailable.",
+      "This is previewed/transport-verified evidence, not production security verification."
+    ]
+  }
+}

@@ -61,6 +61,16 @@ def verify(task: Task):
     execution = task.execution
     if execution.get("status") != "EXECUTED":
         result = {"status": "FAILED", "reason": "Execution did not complete successfully.", "execution_status": execution.get("status")}
+    elif execution.get("adapter") == "codex-browser" and execution.get("browser_verification"):
+        # A serialized status label is not authenticated runtime evidence.
+        runtime_verified = False
+        result = {
+            "status": "VERIFIED" if runtime_verified else "PREVIEWED",
+            "checks": ["Codex browser adapter executed", "browser evidence attached"],
+            "limitations": [] if runtime_verified else [
+                "provider runtime attestation is unavailable; browser evidence is transport-verified only"
+            ],
+        }
     elif execution.get("repository") and execution.get("entries") is not None:
         result = {"status": "VERIFIED", "checks": ["GitHub adapter executed", "repository identified", "repository evidence present"], "limitations": ["repository evidence does not prove deployment, runtime health, or resolution"]}
     else:

@@ -49,7 +49,11 @@ This keeps organizational roles and product truth stable while models, tools, ho
 - `policies/CROSS_MARKET_POLICY.md` — value-first rules for adjacent-product recommendations.
 - `routines/` — declarative recurring-work contracts for governed repeated execution; defining a routine does not schedule or authorize it.
 - `adapters/` — environment-specific and product-repository integration contracts.
+- `runtime/browser_evidence.py` — first-class task evidence normalization for connected-browser route and interaction checks.
 - `docs/CONTROL_PLANE_CHARTER.md` — target architecture, object model, boundaries, and staged migration plan.
+- `docs/security/BROWSER_EXECUTION_ACCEPTANCE.md` — fail-closed browser execution policy, incident-derived acceptance tests, host evidence, and remaining runtime-attestation gate.
+- `docs/security/CODEX_BROWSER_PROVIDER_REQUIREMENTS.md` — provider capability handshake and runtime-attestation requirements for enabling Codex browser execution.
+- `docs/security/evidence/ashwood-route-smoke-2026-09-05.json` — live read-only ASHWOOD route verification through connected Brave.
 - `docs/evidence/routines/` — per-run evidence records for the routines in `routines/`, kept separate from security acceptance evidence.
 
 ## Portable Contracts
@@ -63,6 +67,7 @@ Portable contracts make cross-product work explicit without coupling Agent OS to
 - `contracts/context-envelope.schema.json` — least-privilege ALVIRA-derived context reference with provenance and permitted use;
 - `contracts/authorization-request.schema.json` — governed action request routed to Agent Control as authorization-intelligence owner where integrated;
 - `contracts/outcome-event.schema.json` — bounded execution result, verification, cost/evidence, and measured outcome.
+- `contracts/browser-runtime-attestation.schema.json` — authenticated post-run facts required to verify privileged browser containment.
 
 These interoperability contracts complement the control-plane task/workflow/harness/host/evidence model. They do not replace task authorization or create a second product registry.
 
