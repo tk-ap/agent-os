@@ -31,6 +31,51 @@ class ErrorTests(unittest.TestCase):
         self.assertEqual(harnesses.classify(1, '', 'authentication failed')[0], "authentication")
 
 
+class CapacityCreditTests(unittest.TestCase):
+    """Time parked on exhausted providers must not consume the operator's mandate.
+
+    These run without the installed Hermes dispatcher because the rule is pure
+    arithmetic over an order row, and it is the rule that silently lost a day
+    of approved fleet work when a Codex usage-limit cooldown outlived it.
+    """
+
+    def order(self, **overrides):
+        row = {"revoked": 0, "expires": time.time() + 60, "payload": "{}",
+               "capacity_blocked_at": 0, "capacity_credit": 0}
+        row["digest"] = bridge.digest(json.loads(row["payload"]))
+        row.update(overrides)
+        return row
+
+    def test_unparked_work_still_expires_on_schedule(self):
+        self.assertFalse(bridge.authorized(self.order(expires=time.time() - 1)))
+
+    def test_banked_credit_keeps_parked_work_authorized_past_expiry(self):
+        # Parked for two hours, mandate lapsed one hour ago: still authorized.
+        row = self.order(expires=time.time() - 3600, capacity_credit=7200)
+        self.assertTrue(bridge.authorized(row))
+
+    def test_credit_accrues_while_the_task_is_still_parked(self):
+        row = self.order(expires=time.time() - 3600, capacity_blocked_at=time.time() - 7200)
+        self.assertTrue(bridge.authorized(row))
+        self.assertGreater(bridge.capacity_credit(row), 7100)
+
+    def test_credit_cannot_outlive_one_authority_window(self):
+        row = self.order(expires=time.time() - 1, capacity_credit=bridge.MAX_CAPACITY_CREDIT * 5)
+        self.assertEqual(bridge.capacity_credit(row), bridge.MAX_CAPACITY_CREDIT)
+        self.assertLessEqual(bridge.effective_expiry(row), row["expires"] + bridge.MAX_CAPACITY_CREDIT)
+
+    def test_credit_never_rescues_revoked_or_tampered_work(self):
+        generous = {"expires": time.time() - 3600, "capacity_credit": 7200}
+        self.assertFalse(bridge.authorized(self.order(revoked=1, **generous)))
+        self.assertFalse(bridge.authorized(self.order(digest="tampered", **generous)))
+
+    def test_rows_predating_the_migration_are_read_as_zero_credit(self):
+        row = self.order()
+        del row["capacity_credit"], row["capacity_blocked_at"]
+        self.assertEqual(bridge.capacity_credit(row), 0)
+        self.assertEqual(bridge.effective_expiry(row), row["expires"])
+
+
 @unittest.skipIf(kb is None, "Run with Hermes venv and PYTHONPATH to exercise installed dispatcher")
 class FleetTests(unittest.TestCase):
     def setUp(self):
@@ -190,6 +235,64 @@ class FleetTests(unittest.TestCase):
         self.assertEqual(row["phase"], "waiting_capacity")
         self.assertGreater(row["next_at"], time.time())
         self.assertEqual(kb.get_task(conn, task.id).status, "blocked")
+        conn.close()
+
+    def test_cooldown_longer_than_the_mandate_does_not_revoke_the_task(self):
+        """The 2026-09-07 loss: Codex hit a usage limit, the cooldown outlived
+        the one-day mandate, and the next tick revoked approved work that had
+        never run. Parked time is credited, so the task survives to be retried."""
+        task = self.claimed()
+        def runner(argv, prompt, workspace, out, err, timeout, alive):
+            out.write_text('{"type":"error","message":"rate limit"}'); err.write_text(''); return 1
+        with patch.object(harnesses, "available", return_value=True):
+            bridge.worker(self.state, task.id, task.current_run_id, runner)
+        conn = bridge.connect(self.state)
+        row = bridge.order_row(conn, task.id)
+        self.assertEqual(row["phase"], "waiting_capacity")
+        self.assertGreater(row["capacity_blocked_at"], 0, "capacity clock never started")
+        # Park started two hours ago; the mandate lapsed an hour into the cooldown.
+        conn.execute("""UPDATE agent_os_orders SET capacity_blocked_at=?, expires=?
+                        WHERE task_id=?""",
+                     (time.time() - 7200, time.time() - 3600, task.id))
+        conn.close()
+        bridge.tick(self.state)
+        conn = bridge.connect(self.state)
+        row = bridge.order_row(conn, task.id)
+        self.assertNotEqual(row["phase"], "revoked",
+                            "capacity-blocked work lost its mandate during the cooldown")
+        self.assertTrue(bridge.authorized(row))
+        conn.close()
+
+    def test_unparking_banks_the_credit_and_stops_the_clock(self):
+        task = self.claimed()
+        def runner(argv, prompt, workspace, out, err, timeout, alive):
+            out.write_text('{"type":"error","message":"rate limit"}'); err.write_text(''); return 1
+        with patch.object(harnesses, "available", return_value=True):
+            bridge.worker(self.state, task.id, task.current_run_id, runner)
+        conn = bridge.connect(self.state)
+        # Cooldown elapsed after a one-hour park.
+        conn.execute("""UPDATE agent_os_orders SET capacity_blocked_at=?, next_at=?
+                        WHERE task_id=?""", (time.time() - 3600, time.time() - 1, task.id))
+        conn.close()
+        bridge.tick(self.state)
+        conn = bridge.connect(self.state)
+        row = bridge.order_row(conn, task.id)
+        self.assertEqual(row["phase"], "queued")
+        self.assertEqual(row["capacity_blocked_at"], 0, "credit clock left running while queued")
+        self.assertGreater(row["capacity_credit"], 3500)
+        conn.close()
+
+    def test_expired_work_that_never_parked_is_still_revoked(self):
+        """Crediting parked time must not make ordinary expiry toothless.
+        Uses an unclaimed order: a running task is never revoked mid-flight."""
+        task_id = self.enqueue()
+        conn = bridge.connect(self.state)
+        conn.execute("UPDATE agent_os_orders SET expires=? WHERE task_id=?",
+                     (time.time() - 1, task_id))
+        conn.close()
+        bridge.tick(self.state)
+        conn = bridge.connect(self.state)
+        self.assertEqual(bridge.order_row(conn, task_id)["phase"], "revoked")
         conn.close()
 
     def test_revocation_during_execution_blocks_result(self):

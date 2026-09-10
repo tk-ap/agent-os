@@ -60,7 +60,14 @@ def connect(state):
             -- verification for inspections. Declared here for the same reason.
             execution_mode TEXT NOT NULL DEFAULT 'governed_execution',
             next_at REAL NOT NULL DEFAULT 0, harnesses TEXT NOT NULL,
-            max_attempts INTEGER NOT NULL, timeout INTEGER NOT NULL
+            max_attempts INTEGER NOT NULL, timeout INTEGER NOT NULL,
+            -- Capacity-blocked time never counts against the mandate. An order
+            -- parked because every eligible harness was exhausted consumed none
+            -- of the authority it was granted. capacity_blocked_at is the start
+            -- of the current park (0 while not parked); capacity_credit is the
+            -- seconds already banked from earlier parks.
+            capacity_blocked_at REAL NOT NULL DEFAULT 0,
+            capacity_credit REAL NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS agent_os_capacity (
             harness TEXT PRIMARY KEY, available_at REAL NOT NULL, reason TEXT NOT NULL
@@ -86,6 +93,11 @@ def connect(state):
             kind TEXT NOT NULL, detail TEXT NOT NULL
         );
     """)
+    # Existing fleet databases predate the capacity-credit columns.
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(agent_os_orders)")}
+    for column in ("capacity_blocked_at", "capacity_credit"):
+        if column not in existing:
+            conn.execute(f"ALTER TABLE agent_os_orders ADD COLUMN {column} REAL NOT NULL DEFAULT 0")
     return conn
 
 
@@ -227,8 +239,44 @@ def enqueue(state, order, authority, expires_in=86400, selected=harnesses.SUPPOR
         conn.close()
 
 
+MAX_CAPACITY_CREDIT = 604800  # One full authority window: the enqueue ceiling.
+
+
+def _order_column(row, name):
+    """Read an optional order column; rows read mid-migration may not carry it."""
+    try:
+        value = row[name]
+    except (IndexError, KeyError):
+        return 0.0
+    return 0.0 if value is None else value
+
+
+def capacity_credit(row, now=None):
+    """Seconds this order spent parked because every eligible harness was exhausted."""
+    now = time.time() if now is None else now
+    credit = _order_column(row, "capacity_credit")
+    blocked_at = _order_column(row, "capacity_blocked_at")
+    if blocked_at:
+        credit += max(0.0, now - blocked_at)
+    return min(credit, MAX_CAPACITY_CREDIT)
+
+
+def effective_expiry(row, now=None):
+    """Mandate expiry with capacity-blocked time credited back.
+
+    Provider exhaustion is neither the operator's decision nor the task's
+    fault, and an order parked in waiting_capacity burns none of the authority
+    it was granted. Crediting that time is what stops a usage-limit cooldown
+    -- which classify() may set as far out as 86400s -- from outliving a
+    one-day mandate and revoking approved work that never ran. The credit is
+    capped at one authority window so repeated parking can never turn a
+    bounded grant into an open-ended one.
+    """
+    return row["expires"] + capacity_credit(row, now)
+
+
 def authorized(row):
-    return (row and not row["revoked"] and row["expires"] > time.time()
+    return (row and not row["revoked"] and effective_expiry(row) > time.time()
             and digest(json.loads(row["payload"])) == row["digest"])
 
 
@@ -269,7 +317,12 @@ def tick(state, dry_run=False):
             elif row["phase"] == "waiting_capacity" and row["next_at"] <= time.time() and authorized(row):
                 if not dry_run:
                     kb.unblock_task(conn, task.id)
-                    conn.execute("UPDATE agent_os_orders SET phase='queued' WHERE task_id=?", (task.id,))
+                    banked = capacity_credit(row)
+                    conn.execute("""UPDATE agent_os_orders SET phase='queued',
+                        capacity_credit=?, capacity_blocked_at=0 WHERE task_id=?""",
+                        (banked, task.id))
+                    emit(conn, task.id, "capacity_credit", {"seconds": round(banked, 3),
+                         "effective_expires": effective_expiry(order_row(conn, task.id))})
 
         def spawn(task, workspace, board=None):
             row = order_row(conn, task.id)
@@ -530,7 +583,14 @@ def worker(state, task_id, run_id, runner=run_cli):
                         candidates.append(name)
                 if not candidates:
                     due = conn.execute("SELECT MIN(available_at) FROM agent_os_capacity WHERE available_at>?", (time.time(),)).fetchone()[0]
-                    conn.execute("UPDATE agent_os_orders SET next_at=? WHERE task_id=?", (due or time.time() + 3600, task_id))
+                    # Stop the mandate burning while no harness can run this
+                    # work. An existing clock is preserved so re-parking a task
+                    # that was never unparked cannot discard banked credit.
+                    conn.execute("""UPDATE agent_os_orders SET next_at=?,
+                        capacity_blocked_at=CASE WHEN capacity_blocked_at>0
+                            THEN capacity_blocked_at ELSE ? END
+                        WHERE task_id=?""",
+                        (due or time.time() + 3600, time.time(), task_id))
                     stop(conn, task_id, "waiting_capacity", "Eligible harnesses unavailable; resume after cooldown", run_id)
                     emit(conn, task_id, "phase", {"phase": "waiting_capacity"})
                     return
