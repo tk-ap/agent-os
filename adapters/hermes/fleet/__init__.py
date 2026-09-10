@@ -13,6 +13,7 @@ from . import telegram_agent_directory_hotfix as _telegram_agent_directory_hotfi
 from . import telegram_runtime_recovery as _telegram_runtime_recovery
 from . import telegram_blocker_briefs as _telegram_blocker_briefs
 from . import telegram_blocker_brief_migration as _telegram_blocker_brief_migration
+from . import telegram_digest as _telegram_digest
 from . import telegram_operational_continuity as _telegram_operational_continuity
 
 # Explain is presentation only: install a renderer that performs reads without
@@ -61,6 +62,12 @@ _telegram_blocker_briefs.install(telegram)
 # Emit one upgraded v2 card for currently active blockers so TK does not have to
 # wait for another retry/state transition to receive the conversational version.
 _telegram_blocker_brief_migration.install(telegram)
+
+# Per-event cards answer "what must TK decide"; they cannot answer "how is the
+# workforce doing". One private digest per period says what ran, what the fleet
+# handled without TK, what stopped, and what genuinely needs him -- so reviewing
+# the fleet is reading one message rather than reassembling a day of fragments.
+_telegram_digest.install(telegram)
 
 # Milchik + Polly operational continuity. The existing no-model fleet clock now
 # has an ignition path: when the fleet is idle it may start at most one backlog
